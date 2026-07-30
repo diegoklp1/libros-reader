@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Appear } from '../components/ui/appear';
 import { PressableScale } from '../components/ui/pressable-scale';
 import { Segmented } from '../components/ui/segmented';
+import { useAuth } from '../src/AuthContext';
 import { useBooks } from '../src/BookContext';
 import { confirmDialog, notifyDialog } from '../src/dialog';
 import { selectFeedback } from '../src/haptics';
@@ -16,7 +17,8 @@ import { READING_FONT_ORDER, READING_FONTS, ReadingFontKey, shadow, Theme } from
 const APP_VERSION = Constants.expoConfig?.version ?? '2.3.0';
 
 export default function SettingsScreen() {
-  const { books, dailyStats, clearBooks, clearStats, resetAllData } = useBooks();
+  const { books, dailyStats, clearBooks, clearStats, resetAllData, isSyncing, lastSyncedAt, syncError } = useBooks();
+  const { session, signOut } = useAuth();
   const { prefs, setPreference } = usePreferences();
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -144,6 +146,45 @@ export default function SettingsScreen() {
               value={prefs.haptics}
               onChange={(v) => setPreference('haptics', v)}
             />
+          </View>
+        </Appear>
+
+        {/* --- CUENTA --- */}
+        <Appear delay={nextDelay()}>
+          <Text style={styles.sectionTitle}>Cuenta</Text>
+          <View style={styles.card}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Ionicons name="cloud-done-outline" size={21} color={theme.colors.textSecondary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>{session?.user.email}</Text>
+                <Text style={styles.settingSub}>
+                  {syncError
+                    ? `Error al sincronizar: ${syncError}`
+                    : isSyncing
+                      ? 'Sincronizando…'
+                      : lastSyncedAt
+                        ? `Sincronizado a las ${new Date(lastSyncedAt).toLocaleTimeString()}`
+                        : 'Progreso y notas se sincronizan entre tus dispositivos.'}
+                </Text>
+              </View>
+            </View>
+
+            <PressableScale
+              style={styles.signOutButton}
+              scaleTo={0.97}
+              accessibilityRole="button"
+              onPress={() =>
+                confirmDialog({
+                  title: 'Cerrar sesión',
+                  message: 'Tus libros y progreso siguen guardados en este dispositivo.',
+                  confirmText: 'Cerrar sesión',
+                  onConfirm: signOut,
+                })
+              }
+            >
+              <Ionicons name="log-out-outline" size={19} color={theme.colors.text} />
+              <Text style={styles.signOutText}>Cerrar sesión</Text>
+            </PressableScale>
           </View>
         </Appear>
 
@@ -293,6 +334,13 @@ const makeStyles = (t: Theme) =>
     },
     fontRowActive: { borderColor: t.colors.primary, backgroundColor: t.colors.primarySoft },
     fontNote: { fontFamily: t.fonts.regular, fontSize: 11.5, color: t.colors.textMuted, marginTop: 2 },
+
+    signOutButton: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9,
+      backgroundColor: t.colors.background, borderWidth: 1, borderColor: t.colors.border,
+      padding: 12, borderRadius: t.radius.md, marginTop: 16,
+    },
+    signOutText: { fontFamily: t.fonts.semibold, fontSize: 14, color: t.colors.text },
 
     resetButton: {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9,

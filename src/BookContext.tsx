@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { useAuth } from './AuthContext';
+import { deleteBookRemote, pullAndMerge, pullProgressForBook, pushAll } from './cloudSync';
 import { deleteBookFiles } from './storage';
 import { clearWebFiles, primeWebFiles } from './webFiles';
 
@@ -49,6 +51,8 @@ export interface Book {
   category?: string;
   createdAt?: number;
   lastOpenedAt?: number;
+  /** Última modificación local, en ms. Sirve para resolver conflictos al sincronizar con Supabase. */
+  updatedAt?: number;
 }
 
 export interface NewBook {
@@ -84,6 +88,9 @@ interface BookContextType {
   clearBooks: () => Promise<void>;
   clearStats: () => Promise<void>;
   resetAllData: () => Promise<void>;
+  isSyncing: boolean;
+  lastSyncedAt: number | null;
+  syncError: string | null;
 }
 
 const BookContext = createContext<BookContextType | undefined>(undefined);
@@ -112,6 +119,17 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Evita que los efectos de guardado sobrescriban el almacenamiento con
   // los valores iniciales vacíos antes de terminar la carga (condición de carrera).
   const hydrated = useRef(false);
+
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  // El pull inicial (al loguear) mezcla estado remoto en el local. Sin esta
+  // marca, el efecto de push vería ese cambio de estado y lo subiría de
+  // vuelta antes de que termine de asentarse, generando un round-trip inútil.
+  const pulledForUser = useRef<string | null>(null);
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cargar datos al iniciar
   useEffect(() => {
@@ -152,8 +170,62 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   }, [dailyStats]);
 
+  // Al iniciar sesión (o al recuperar una sesión guardada), traer el progreso
+  // de la nube y combinarlo con lo local. Se hace una sola vez por sesión:
+  // después de esto, el resto del ida y vuelta lo maneja el push de abajo.
+  useEffect(() => {
+    if (isLoading || !userId || pulledForUser.current === userId) return;
+    pulledForUser.current = userId;
+    setIsSyncing(true);
+    pullAndMerge(userId, books, dailyStats)
+      .then(({ books: merged, dailyStats: mergedStats, changed }) => {
+        if (changed) {
+          setBooks(merged);
+          setDailyStats(mergedStats);
+        }
+        setSyncError(null);
+        setLastSyncedAt(Date.now());
+      })
+      .catch((e) => {
+        console.error('Error sincronizando con Supabase (pull)', e);
+        setSyncError(e?.message ?? 'No se pudo sincronizar');
+      })
+      .finally(() => setIsSyncing(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, isLoading]);
+
+  // Al cerrar sesión, permite que el próximo login vuelva a traer datos.
+  useEffect(() => {
+    if (!userId) pulledForUser.current = null;
+  }, [userId]);
+
+  // Sube los cambios locales a Supabase, con un pequeño debounce para no
+  // disparar una llamada por cada tecla o cada segundo de audio.
+  useEffect(() => {
+    if (isLoading || !userId || pulledForUser.current !== userId) return;
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      setIsSyncing(true);
+      pushAll(userId, books, dailyStats)
+        .then(() => {
+          setSyncError(null);
+          setLastSyncedAt(Date.now());
+        })
+        .catch((e) => {
+          console.error('Error sincronizando con Supabase (push)', e);
+          setSyncError(e?.message ?? 'No se pudo sincronizar');
+        })
+        .finally(() => setIsSyncing(false));
+    }, 1500);
+    return () => {
+      if (pushTimer.current) clearTimeout(pushTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [books, dailyStats, userId]);
+
   const addBook = (newBook: NewBook, id?: string) => {
     const bookId = id ?? genId();
+    const now = Date.now();
     setBooks((prev) => [
       ...prev,
       {
@@ -164,15 +236,33 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isArchived: false,
         isFinished: false,
         notes: [],
-        createdAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
       },
     ]);
+
+    // Si el mismo archivo ya tiene progreso en la nube desde otro
+    // dispositivo, lo trae para no arrancar de cero en este.
+    if (userId) {
+      pullProgressForBook(userId, { id: bookId, title: newBook.title, author: newBook.author, txtUri: newBook.txtUri })
+        .then((progress) => {
+          if (progress) updateBook(bookId, progress);
+        })
+        .catch((e) => console.error('Error trayendo progreso previo del libro', e));
+    }
+
     return bookId;
   };
 
   const deleteBook = (id: string) => {
+    const book = books.find((b) => b.id === id);
     setBooks((prev) => prev.filter((book) => book.id !== id));
     deleteBookFiles(id).catch(() => {});
+    if (userId && book) {
+      deleteBookRemote(userId, book).catch((e) =>
+        console.error('Error borrando el libro en Supabase', e)
+      );
+    }
   };
 
   const updateProgress = (id: string, currentPage: number, audioPosition: number, totalPages?: number) => {
@@ -185,6 +275,7 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
               audioPosition,
               ...(totalPages !== undefined ? { totalPages } : {}),
               lastOpenedAt: Date.now(),
+              updatedAt: Date.now(),
             }
           : book
       )
@@ -193,7 +284,11 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateBook = (id: string, updatedData: Partial<Book>) => {
     setBooks((prev) =>
-      prev.map((book) => (book.id === id ? { ...book, ...updatedData } : book))
+      prev.map((book) =>
+        book.id === id
+          ? { ...book, ...updatedData, updatedAt: updatedData.updatedAt ?? Date.now() }
+          : book
+      )
     );
   };
 
@@ -276,6 +371,9 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
         clearBooks,
         clearStats,
         resetAllData,
+        isSyncing,
+        lastSyncedAt,
+        syncError,
       }}
     >
       {children}

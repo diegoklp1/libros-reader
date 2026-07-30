@@ -9,8 +9,10 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AuthProvider, useAuth } from '../src/AuthContext';
 import { BookProvider } from '../src/BookContext';
 import { PreferencesProvider, useTheme } from '../src/PreferencesContext';
 
@@ -20,6 +22,7 @@ SplashScreen.setOptions({ duration: 320, fade: true });
 
 function Navigation() {
   const theme = useTheme();
+  const { session, isLoading } = useAuth();
 
   const navTheme = {
     ...(theme.dark ? DarkTheme : DefaultTheme),
@@ -32,6 +35,17 @@ function Navigation() {
       primary: theme.colors.primary,
     },
   };
+
+  // Mientras se resuelve si hay una sesión guardada, no se sabe todavía si
+  // mostrar la biblioteca o el login: mejor esperar un instante en blanco que
+  // parpadear entre las dos.
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.background }}>
+        <ActivityIndicator color={theme.colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <ThemeProvider value={navTheme}>
@@ -46,11 +60,16 @@ function Navigation() {
           animationDuration: 260,
         }}
       >
-        <Stack.Screen name="index" options={{ headerShown: false, animation: 'fade' }} />
-        <Stack.Screen name="add-book" options={{ title: 'Agregar Libro', presentation: 'modal', animation: 'slide_from_bottom' }} />
-        <Stack.Screen name="reader" options={{ headerShown: false, animation: 'fade_from_bottom' }} />
-        <Stack.Screen name="stats" options={{ headerShown: false }} />
-        <Stack.Screen name="settings" options={{ headerShown: false }} />
+        <Stack.Protected guard={!!session}>
+          <Stack.Screen name="index" options={{ headerShown: false, animation: 'fade' }} />
+          <Stack.Screen name="add-book" options={{ title: 'Agregar Libro', presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="reader" options={{ headerShown: false, animation: 'fade_from_bottom' }} />
+          <Stack.Screen name="stats" options={{ headerShown: false }} />
+          <Stack.Screen name="settings" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={!session}>
+          <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
+        </Stack.Protected>
       </Stack>
     </ThemeProvider>
   );
@@ -89,9 +108,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <PreferencesProvider>
-          <BookProvider>
-            <Navigation />
-          </BookProvider>
+          <AuthProvider>
+            <BookProvider>
+              <Navigation />
+            </BookProvider>
+          </AuthProvider>
         </PreferencesProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
