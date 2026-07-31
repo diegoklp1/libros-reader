@@ -188,6 +188,21 @@ export default function SettingsScreen() {
           </View>
         </Appear>
 
+        {/* --- BIBLIOTECA --- */}
+        <Appear delay={nextDelay()}>
+          <Text style={styles.sectionTitle}>Biblioteca</Text>
+          <View style={styles.card}>
+            <DangerRow
+              theme={theme}
+              icon="folder-open-outline"
+              label="Importar desde una carpeta"
+              sub="Cargá varios libros de una a partir de un manifest.json (Android y PC)."
+              onPress={() => router.push('/import-library')}
+              tone="normal"
+            />
+          </View>
+        </Appear>
+
         {/* --- GESTIÓN DE DATOS --- */}
         <Appear delay={nextDelay()}>
           <Text style={[styles.sectionTitle, { color: theme.colors.danger }]}>Gestión de datos</Text>
@@ -282,7 +297,9 @@ const DangerRow: React.FC<{
   label: string;
   sub: string;
   onPress: () => void;
-}> = ({ theme, icon, label, sub, onPress }) => (
+  /** 'normal' para acciones que no borran nada (ej. importar). */
+  tone?: 'danger' | 'normal';
+}> = ({ theme, icon, label, sub, onPress, tone = 'danger' }) => (
   <PressableScale
     scaleTo={0.98}
     accessibilityRole="button"
@@ -290,7 +307,7 @@ const DangerRow: React.FC<{
     onPress={onPress}
     style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 }}
   >
-    <Ionicons name={icon} size={21} color={theme.colors.danger} />
+    <Ionicons name={icon} size={21} color={tone === 'danger' ? theme.colors.danger : theme.colors.primary} />
     <View style={{ flex: 1 }}>
       <Text style={{ fontFamily: theme.fonts.semibold, fontSize: 15, color: theme.colors.text }}>{label}</Text>
       <Text style={{ fontFamily: theme.fonts.regular, fontSize: 12, color: theme.colors.textSecondary, marginTop: 2, lineHeight: 17 }}>
@@ -311,7 +328,7 @@ const makeStyles = (t: Theme) =>
       borderBottomWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
     },
     backBtn: { padding: 5 },
-    headerTitle: { fontFamily: t.fonts.bold, fontSize: 19, color: t.colors.text },
+    headerTitle: { fontFamily: t.fonts.display, fontSize: 20, color: t.colors.text },
     scrollContent: { padding: t.spacing.xl, paddingBottom: 48, width: '100%', maxWidth: 720, alignSelf: 'center' },
 
     sectionTitle: {
@@ -353,7 +370,7 @@ const makeStyles = (t: Theme) =>
       width: 54, height: 54, borderRadius: 27, backgroundColor: t.colors.primarySoft,
       alignItems: 'center', justifyContent: 'center', marginBottom: 12,
     },
-    appName: { fontFamily: t.fonts.bold, fontSize: 16, color: t.colors.text },
+    appName: { fontFamily: t.fonts.display, fontSize: 17, color: t.colors.text },
     appVersion: { fontFamily: t.fonts.medium, fontSize: 13, color: t.colors.textMuted, marginTop: 3 },
     appCredit: { fontFamily: t.fonts.regular, fontSize: 12, color: t.colors.textMuted, marginTop: 6 },
   });
