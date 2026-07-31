@@ -29,6 +29,14 @@ export const fonts = {
   bold: 'InterBold',
   serif: 'Literata',
   serifBold: 'LiterataBold',
+  /**
+   * Display: solo para títulos de pantalla y momentos de marca (nunca para
+   * cuerpo de texto ni controles). Es lo que le da a la app una voz propia en
+   * vez de la tipografía neutra de cualquier app de gestión.
+   */
+  display: 'Fraunces',
+  displaySemibold: 'FrauncesSemibold',
+  displayItalic: 'FrauncesItalic',
 } as const;
 
 export const spacing = {
@@ -131,43 +139,48 @@ export interface Theme {
   motion: typeof motion;
 }
 
+// --- PALETA "LÁMPARA DE ESCRITORIO" ---
+// El verde viene del vidrio de las lámparas de biblioteca y las tapas de tela
+// de las ediciones de bolsillo; el dorado, de los cantos de página de las
+// ediciones encuadernadas. Terminar un libro se ve dorado a propósito: es el
+// mismo gesto que un canto de página con pan de oro.
 const lightColors: ThemeColors = {
-  background: '#F4F5F7',
-  surface: '#FFFFFF',
-  surfaceAlt: '#EEF0F3',
-  border: '#E4E7EB',
-  text: '#141821',
-  textSecondary: '#5B6472',
-  textMuted: '#9AA1AC',
-  primary: '#2F6BFF',
-  primarySoft: '#E9F0FF',
+  background: '#F1EFE6',
+  surface: '#FFFFFE',
+  surfaceAlt: '#E7E2D2',
+  border: '#DAD3BE',
+  text: '#20241F',
+  textSecondary: '#5C6156',
+  textMuted: '#96917E',
+  primary: '#1F5C4A',
+  primarySoft: '#DCEAE2',
   onPrimary: '#FFFFFF',
-  success: '#0FA968',
-  successSoft: '#E4F7EE',
-  danger: '#E4443B',
-  dangerSoft: '#FCECEB',
-  warning: '#E08A00',
-  overlay: 'rgba(16,20,28,0.45)',
-  shadow: '#0B1220',
+  success: '#96721E',
+  successSoft: '#F2E7CD',
+  danger: '#A5382B',
+  dangerSoft: '#F5E1DC',
+  warning: '#96721E',
+  overlay: 'rgba(23,26,20,0.5)',
+  shadow: '#12140F',
 };
 
 const darkColors: ThemeColors = {
-  background: '#0E1116',
-  surface: '#181D25',
-  surfaceAlt: '#212832',
-  border: '#2A313C',
-  text: '#E8EAED',
-  textSecondary: '#A0A9B5',
-  textMuted: '#6B7480',
-  primary: '#5B8CFF',
-  primarySoft: '#1B2534',
-  onPrimary: '#0E1116',
-  success: '#2BC98A',
-  successSoft: '#132A22',
-  danger: '#F0655C',
-  dangerSoft: '#2E1A1A',
-  warning: '#F5B23D',
-  overlay: 'rgba(0,0,0,0.6)',
+  background: '#15180F',
+  surface: '#1D2118',
+  surfaceAlt: '#262B21',
+  border: '#343A2E',
+  text: '#ECE8DA',
+  textSecondary: '#ABA890',
+  textMuted: '#6E6C5A',
+  primary: '#4FAE8A',
+  primarySoft: '#1D3129',
+  onPrimary: '#0B140F',
+  success: '#D4AF56',
+  successSoft: '#332A16',
+  danger: '#E2695A',
+  dangerSoft: '#33201B',
+  warning: '#D4AF56',
+  overlay: 'rgba(0,0,0,0.62)',
   shadow: '#000000',
 };
 
@@ -267,13 +280,13 @@ export interface ReaderTheme {
 }
 
 export const READER_THEMES: Record<ReaderThemeName, ReaderTheme> = {
-  light: { background: '#FFFFFF', text: '#2A2E35', controlBg: '#FBFBFC', tint: '#2F6BFF', highlight: '#FFE08A', syncHighlight: '#ECEEF1', syncText: '#14181F', noteBg: '#F2F6FF', markBg: '#FFF8E3', markBar: '#E0A93B' },
+  light: { background: '#FFFFFF', text: '#2A2E35', controlBg: '#FBFBFC', tint: '#1F5C4A', highlight: '#FFE08A', syncHighlight: '#ECEEF1', syncText: '#14181F', noteBg: '#EEF4F0', markBg: '#FFF8E3', markBar: '#E0A93B' },
   sepia: { background: '#F4ECD8', text: '#5B4636', controlBg: '#EBE2CC', tint: '#8B5A2B', highlight: '#E6C388', syncHighlight: '#E6DCC6', syncText: '#3F3025', noteBg: '#FDF7EE', markBg: '#EFE1C0', markBar: '#A9713A' },
-  dark: { background: '#121418', text: '#C7CBD1', controlBg: '#1B1E24', tint: '#5B8CFF', highlight: '#4A5B2B', syncHighlight: '#272C34', syncText: '#F0F2F5', noteBg: '#22262E', markBg: '#2B2716', markBar: '#C9A227' },
+  dark: { background: '#121418', text: '#C7CBD1', controlBg: '#1B1E24', tint: '#4FAE8A', highlight: '#4A5B2B', syncHighlight: '#272C34', syncText: '#F0F2F5', noteBg: '#1E2620', markBg: '#2B2716', markBar: '#C9A227' },
   // Negro puro: en pantallas OLED los píxeles del fondo quedan apagados, así que
   // de noche no ilumina la cara y consume menos batería. El texto baja a gris
   // medio a propósito — blanco puro sobre negro puro produce halo al leer.
-  night: { background: '#000000', text: '#A8ADB5', controlBg: '#0B0D10', tint: '#7FA5FF', highlight: '#4A4520', syncHighlight: '#16191E', syncText: '#DFE3E8', noteBg: '#111419', markBg: '#211D10', markBar: '#B08D1E' },
+  night: { background: '#000000', text: '#A8ADB5', controlBg: '#0B0D10', tint: '#6FBFA0', highlight: '#4A4520', syncHighlight: '#16191E', syncText: '#DFE3E8', noteBg: '#111419', markBg: '#211D10', markBar: '#B08D1E' },
 };
 
 /** Orden y etiquetas del selector de tema en el lector. */

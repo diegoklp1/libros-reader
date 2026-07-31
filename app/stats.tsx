@@ -422,7 +422,7 @@ const makeStyles = (t: Theme, gutter: number) =>
       borderBottomWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
     },
     backBtn: { padding: 5 },
-    headerTitle: { fontFamily: t.fonts.bold, fontSize: 19, color: t.colors.text },
+    headerTitle: { fontFamily: t.fonts.display, fontSize: 20, color: t.colors.text },
     scrollContent: { padding: gutter, paddingBottom: 48, width: '100%', maxWidth: 900, alignSelf: 'center' },
 
     sectionTitle: {

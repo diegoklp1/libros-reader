@@ -44,6 +44,13 @@ export default function AddBookScreen() {
   const [cuesUri, setCuesUri] = useState<string | null>(editingBook?.cuesUri || null);
 
   const [isProcessing, setIsProcessing] = useState(false);
+  // Reemplaza el contorno azul por defecto del navegador (ver `outlineStyle`
+  // más abajo) por uno propio, coherente con la paleta de la app.
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+  const focusHandlers = (name: string) => ({
+    onFocus: () => setFocusedField(name),
+    onBlur: () => setFocusedField((f) => (f === name ? null : f)),
+  });
   const [showCategorySheet, setShowCategorySheet] = useState(false);
   const [isCreatingNewCategory, setIsCreatingNewCategory] = useState(false);
 
@@ -227,35 +234,42 @@ export default function AddBookScreen() {
 
           <Text style={styles.label}>Título</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, focusedField === 'title' && styles.inputFocused]}
             placeholder="Ej: Meditaciones"
             placeholderTextColor={theme.colors.textMuted}
             value={title}
             onChangeText={setTitle}
             editable={!isProcessing}
+            {...focusHandlers('title')}
           />
 
           <Text style={styles.label}>Autor (opcional)</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, focusedField === 'author' && styles.inputFocused]}
             placeholder="Ej: Marco Aurelio"
             placeholderTextColor={theme.colors.textMuted}
             value={author}
             onChangeText={setAuthor}
             editable={!isProcessing}
+            {...focusHandlers('author')}
           />
 
           <Text style={styles.label}>Categoría</Text>
           {isCreatingNewCategory ? (
             <View style={styles.newCategoryRow}>
               <TextInput
-                style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                style={[
+                  styles.input,
+                  { flex: 1, marginBottom: 0 },
+                  focusedField === 'category' && styles.inputFocused,
+                ]}
                 placeholder="Escribí la nueva categoría…"
                 placeholderTextColor={theme.colors.textMuted}
                 value={category}
                 onChangeText={setCategory}
                 editable={!isProcessing}
                 autoFocus
+                {...focusHandlers('category')}
               />
               <PressableScale
                 style={{ padding: 5 }}
@@ -284,13 +298,14 @@ export default function AddBookScreen() {
 
           <Text style={styles.label}>Descripción breve (opcional)</Text>
           <TextInput
-            style={[styles.input, styles.textArea]}
+            style={[styles.input, styles.textArea, focusedField === 'description' && styles.inputFocused]}
             placeholder="¿De qué trata este libro?"
             placeholderTextColor={theme.colors.textMuted}
             value={description}
             onChangeText={setDescription}
             multiline
             editable={!isProcessing}
+            {...focusHandlers('description')}
           />
         </Appear>
       </ScrollView>
@@ -441,10 +456,11 @@ const makeStyles = (t: Theme) =>
     label: { fontFamily: t.fonts.semibold, fontSize: 13, color: t.colors.textSecondary, marginBottom: 7 },
     input: {
       backgroundColor: t.colors.surface, fontFamily: t.fonts.regular, fontSize: 16, color: t.colors.text,
-      padding: 14, borderRadius: t.radius.md,
-      borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border, marginBottom: 16,
+      padding: 13, borderRadius: t.radius.md,
+      borderWidth: 1.5, borderColor: t.colors.border, marginBottom: 16,
       ...(Platform.OS === 'web' ? { outlineStyle: 'none' as any } : {}),
     },
+    inputFocused: { borderColor: t.colors.primary },
     textArea: { minHeight: 96, textAlignVertical: 'top' },
 
     dropdownInput: {

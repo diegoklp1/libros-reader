@@ -1,4 +1,5 @@
 import { AtkinsonHyperlegible_400Regular, AtkinsonHyperlegible_700Bold } from '@expo-google-fonts/atkinson-hyperlegible';
+import { Fraunces_600SemiBold, Fraunces_600SemiBold_Italic, Fraunces_700Bold } from '@expo-google-fonts/fraunces';
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { Literata_400Regular, Literata_400Regular_Italic, Literata_700Bold } from '@expo-google-fonts/literata';
 import { Lora_400Regular, Lora_400Regular_Italic, Lora_700Bold } from '@expo-google-fonts/lora';
@@ -54,7 +55,7 @@ function Navigation() {
         screenOptions={{
           headerStyle: { backgroundColor: theme.colors.surface },
           headerTintColor: theme.colors.text,
-          headerTitleStyle: { fontFamily: theme.fonts.bold },
+          headerTitleStyle: { fontFamily: theme.fonts.display, fontSize: 19 },
           contentStyle: { backgroundColor: theme.colors.background },
           animation: 'slide_from_right',
           animationDuration: 260,
@@ -63,6 +64,7 @@ function Navigation() {
         <Stack.Protected guard={!!session}>
           <Stack.Screen name="index" options={{ headerShown: false, animation: 'fade' }} />
           <Stack.Screen name="add-book" options={{ title: 'Agregar Libro', presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="import-library" options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="reader" options={{ headerShown: false, animation: 'fade_from_bottom' }} />
           <Stack.Screen name="stats" options={{ headerShown: false }} />
           <Stack.Screen name="settings" options={{ headerShown: false }} />
@@ -92,6 +94,10 @@ export default function RootLayout() {
     MerriweatherBold: Merriweather_700Bold,
     Atkinson: AtkinsonHyperlegible_400Regular,
     AtkinsonBold: AtkinsonHyperlegible_700Bold,
+    Fraunces: Fraunces_600SemiBold,
+    FrauncesSemibold: Fraunces_600SemiBold,
+    FrauncesItalic: Fraunces_600SemiBold_Italic,
+    FrauncesBold: Fraunces_700Bold,
   });
 
   // Si alguna fuente falla, arrancar igual: React Native cae a la del sistema y

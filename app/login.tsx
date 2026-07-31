@@ -29,6 +29,10 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Reemplaza el contorno azul por defecto del navegador por uno propio: sigue
+  // siendo visible al navegar con teclado, pero habla el mismo idioma visual
+  // que el resto de la app en vez de romper la paleta.
+  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
 
   const handleSubmit = async () => {
     if (!email.trim() || !password) {
@@ -65,9 +69,11 @@ export default function LoginScreen() {
           <View style={styles.card}>
             <Text style={styles.label}>Email</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, focusedField === 'email' && styles.inputFocused]}
               value={email}
               onChangeText={setEmail}
+              onFocus={() => setFocusedField('email')}
+              onBlur={() => setFocusedField(null)}
               placeholder="tu@email.com"
               placeholderTextColor={theme.colors.textMuted}
               autoCapitalize="none"
@@ -78,9 +84,11 @@ export default function LoginScreen() {
 
             <Text style={[styles.label, { marginTop: 14 }]}>Contraseña</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, focusedField === 'password' && styles.inputFocused]}
               value={password}
               onChangeText={setPassword}
+              onFocus={() => setFocusedField('password')}
+              onBlur={() => setFocusedField(null)}
               placeholder="••••••••"
               placeholderTextColor={theme.colors.textMuted}
               secureTextEntry
@@ -125,7 +133,7 @@ const makeStyles = (t: Theme) =>
       width: 60, height: 60, borderRadius: 30, backgroundColor: t.colors.primarySoft,
       alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 14,
     },
-    title: { fontFamily: t.fonts.bold, fontSize: 22, color: t.colors.text, textAlign: 'center' },
+    title: { fontFamily: t.fonts.display, fontSize: 26, color: t.colors.text, textAlign: 'center' },
     subtitle: {
       fontFamily: t.fonts.regular, fontSize: 13, color: t.colors.textSecondary,
       textAlign: 'center', marginTop: 6, marginBottom: 28, lineHeight: 18,
@@ -136,10 +144,12 @@ const makeStyles = (t: Theme) =>
     },
     label: { fontFamily: t.fonts.semibold, fontSize: 13, color: t.colors.textSecondary },
     input: {
-      marginTop: 6, borderWidth: 1, borderColor: t.colors.border, borderRadius: t.radius.md,
+      marginTop: 6, borderWidth: 1.5, borderColor: t.colors.border, borderRadius: t.radius.md,
       paddingHorizontal: 14, paddingVertical: 11, fontFamily: t.fonts.regular, fontSize: 15,
       color: t.colors.text, backgroundColor: t.colors.background,
+      ...(Platform.OS === 'web' ? { outlineStyle: 'none' as any } : {}),
     },
+    inputFocused: { borderColor: t.colors.primary },
     error: { fontFamily: t.fonts.medium, fontSize: 12.5, color: t.colors.danger, marginTop: 12 },
     button: {
       marginTop: 20, backgroundColor: t.colors.primary, borderRadius: t.radius.md,
