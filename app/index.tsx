@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -22,8 +22,64 @@ import { Book, useBooks } from '../src/BookContext';
 import { confirmDialog } from '../src/dialog';
 import { selectFeedback } from '../src/haptics';
 import { useTheme } from '../src/PreferencesContext';
+import { readTextFile } from '../src/storage';
 import { layoutFor, motion, shadow, Theme } from '../src/theme';
 import { resolveUri } from '../src/webFiles';
+
+// --- BÚSQUEDA EN TODO EL TEXTO ---
+// Recorre el contenido de los .txt, no solo título/autor. Se guarda en cache
+// por libro (nunca cambia una vez importado) para no releer el archivo en
+// cada letra que se escribe.
+const MIN_CONTENT_QUERY = 3;
+const MAX_SNIPPETS_PER_BOOK = 2;
+
+interface ContentSnippet {
+  text: string;
+  matchIndex: number;
+}
+
+interface ContentResult {
+  book: Book;
+  snippets: ContentSnippet[];
+  totalMatches: number;
+}
+
+function findSnippets(content: string, query: string): { snippets: ContentSnippet[]; totalMatches: number } {
+  const lower = content.toLowerCase();
+  const q = query.toLowerCase();
+  const indices: number[] = [];
+  let idx = lower.indexOf(q);
+  // Tope arbitrario: pasadas las 300 apariciones ya no aporta seguir contando,
+  // y evita quedarse dando vueltas en un libro donde la palabra es moneda corriente.
+  while (idx !== -1 && indices.length < 300) {
+    indices.push(idx);
+    idx = lower.indexOf(q, idx + q.length);
+  }
+  const snippets = indices.slice(0, MAX_SNIPPETS_PER_BOOK).map((i) => {
+    const start = Math.max(0, i - 55);
+    const end = Math.min(content.length, i + q.length + 55);
+    return { text: content.slice(start, end).replace(/\s+/g, ' ').trim(), matchIndex: i };
+  });
+  return { snippets, totalMatches: indices.length };
+}
+
+/** Resalta la coincidencia dentro de un snippet, igual que la búsqueda del lector. */
+function HighlightedSnippet({ text, query, style, highlightStyle }: {
+  text: string; query: string; style: any; highlightStyle: any;
+}) {
+  const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+  return (
+    <Text style={style} numberOfLines={2}>
+      …{parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase() ? (
+          <Text key={i} style={highlightStyle}>{part}</Text>
+        ) : (
+          part
+        )
+      )}…
+    </Text>
+  );
+}
 
 const MAX_CONTENT_WIDTH = 1180;
 const GAP = 14;
@@ -79,6 +135,53 @@ export default function HomeScreen() {
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [menuBook, setMenuBook] = useState<Book | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  // --- BÚSQUEDA EN TODO EL TEXTO ---
+  const [contentResults, setContentResults] = useState<ContentResult[]>([]);
+  const [isContentSearching, setIsContentSearching] = useState(false);
+  const textCache = useRef<Map<string, string>>(new Map());
+  const searchToken = useRef(0);
+
+  useEffect(() => {
+    const query = search.trim();
+    if (query.length < MIN_CONTENT_QUERY) {
+      setContentResults([]);
+      setIsContentSearching(false);
+      return;
+    }
+    const token = ++searchToken.current;
+    setIsContentSearching(true);
+    const timer = setTimeout(async () => {
+      const results: ContentResult[] = [];
+      for (const b of books) {
+        if (!b.txtUri) continue;
+        try {
+          let content = textCache.current.get(b.id);
+          if (content === undefined) {
+            content = await readTextFile(b.txtUri);
+            textCache.current.set(b.id, content);
+          }
+          if (token !== searchToken.current) return; // se escribió algo nuevo mientras tanto
+          const { snippets, totalMatches } = findSnippets(content, query);
+          if (totalMatches > 0) results.push({ book: b, snippets, totalMatches });
+        } catch {
+          // Un archivo que no se pudo leer no debe frenar la búsqueda del resto.
+        }
+      }
+      if (token !== searchToken.current) return;
+      results.sort((a, b) => b.totalMatches - a.totalMatches);
+      setContentResults(results);
+      setIsContentSearching(false);
+    }, 350);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, books]);
+
+  const openBookAtSearch = (book: Book) => {
+    selectFeedback();
+    router.push({ pathname: '/reader', params: { id: book.id, q: search.trim() } });
+  };
 
   const showArchived = tab === 'archived';
 
@@ -252,11 +355,19 @@ export default function HomeScreen() {
           onPress={() => openBook(continueBook)}
         >
           <View style={styles.continueCover}>
-            {cover ? (
-              <Image source={{ uri: cover }} style={styles.cover} resizeMode="cover" />
-            ) : (
-              <Ionicons name="book" size={26} color={theme.colors.textMuted} />
-            )}
+            <View style={styles.continueCoverInner}>
+              {cover ? (
+                <Image source={{ uri: cover }} style={styles.cover} resizeMode="cover" />
+              ) : (
+                <Ionicons name="book" size={26} color={theme.colors.textMuted} />
+              )}
+            </View>
+            {/* La cinta: el mismo gesto de doblar la esquina de una página para no
+                perder el lugar, así que solo aparece en el libro que estás leyendo. */}
+            <View style={styles.ribbon}>
+              <View style={[styles.ribbonBody, { backgroundColor: theme.colors.primary }]} />
+              <View style={[styles.ribbonNotch, { borderTopColor: theme.colors.primary }]} />
+            </View>
           </View>
 
           <View style={styles.continueBody}>
@@ -281,6 +392,51 @@ export default function HomeScreen() {
             <Ionicons name="play" size={20} color={theme.colors.onPrimary} style={{ marginLeft: 2 }} />
           </View>
         </PressableScale>
+      </Appear>
+    );
+  };
+
+  // --- RESULTADOS DE BÚSQUEDA EN EL TEXTO ---
+  const renderContentResults = () => {
+    const query = search.trim();
+    if (query.length < MIN_CONTENT_QUERY) return null;
+
+    return (
+      <Appear style={{ marginBottom: theme.spacing.xl }}>
+        <Text style={styles.sectionLabel}>
+          {isContentSearching ? 'Buscando en el texto…' : `En el texto (${contentResults.length})`}
+        </Text>
+        {contentResults.length === 0 && !isContentSearching ? (
+          <Text style={styles.noContentResults}>Ningún libro menciona “{query}”.</Text>
+        ) : (
+          contentResults.map(({ book, snippets, totalMatches }) => (
+            <View key={book.id} style={styles.contentResultCard}>
+              <Text style={styles.contentResultTitle} numberOfLines={1}>
+                {book.title}{book.author ? ` — ${book.author}` : ''}
+              </Text>
+              {snippets.map((s, i) => (
+                <PressableScale
+                  key={i}
+                  scaleTo={0.98}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Ir a "${s.text}" en ${book.title}`}
+                  onPress={() => openBookAtSearch(book)}
+                  style={styles.contentResultRow}
+                >
+                  <HighlightedSnippet
+                    text={s.text}
+                    query={query}
+                    style={styles.contentResultSnippet}
+                    highlightStyle={[styles.contentResultSnippet, { backgroundColor: theme.colors.primarySoft, color: theme.colors.primary, fontFamily: theme.fonts.bold }]}
+                  />
+                </PressableScale>
+              ))}
+              {totalMatches > snippets.length && (
+                <Text style={styles.contentResultMore}>+{totalMatches - snippets.length} coincidencias más</Text>
+              )}
+            </View>
+          ))
+        )}
       </Appear>
     );
   };
@@ -320,7 +476,7 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <View style={styles.searchBar}>
+          <View style={[styles.searchBar, searchFocused && styles.searchBarFocused]}>
             <Ionicons name="search" size={17} color={theme.colors.textMuted} />
             <TextInput
               style={styles.searchInput}
@@ -328,6 +484,8 @@ export default function HomeScreen() {
               placeholderTextColor={theme.colors.textMuted}
               value={search}
               onChangeText={setSearch}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
               returnKeyType="search"
               accessibilityLabel="Buscar en la biblioteca"
             />
@@ -400,8 +558,16 @@ export default function HomeScreen() {
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        ListHeaderComponent={renderContinue}
+        ListHeaderComponent={() => (
+          <>
+            {renderContinue()}
+            {renderContentResults()}
+          </>
+        )}
         ListEmptyComponent={
+          // Si ya hay resultados de texto arriba (o todavía se está buscando), el
+          // "sin resultados" de acá abajo sobra y contradice lo que se ve arriba.
+          search.trim().length >= MIN_CONTENT_QUERY && (contentResults.length > 0 || isContentSearching) ? null : (
           <Appear distance={8} style={styles.emptyState}>
             <View style={styles.emptyIcon}>
               <Ionicons
@@ -429,6 +595,7 @@ export default function HomeScreen() {
               </>
             )}
           </Appear>
+          )
         }
       />
 
@@ -543,14 +710,16 @@ const makeStyles = (t: Theme, topInset: number, gutter: number) =>
     headerInner: { width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', paddingHorizontal: gutter },
     headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: t.spacing.md },
     headerEyebrow: { fontFamily: t.fonts.medium, fontSize: 12, color: t.colors.textMuted, letterSpacing: 0.6, textTransform: 'uppercase' },
-    headerTitle: { fontFamily: t.fonts.bold, fontSize: 27, color: t.colors.text, letterSpacing: -0.5, marginTop: 2 },
+    headerTitle: { fontFamily: t.fonts.display, fontSize: 30, color: t.colors.text, marginTop: 2 },
     actionButton: { padding: 9, backgroundColor: t.colors.primarySoft, borderRadius: t.radius.sm + 2 },
 
     searchBar: {
       flexDirection: 'row', alignItems: 'center', gap: 8,
       backgroundColor: t.colors.surfaceAlt, borderRadius: t.radius.md,
+      borderWidth: 1.5, borderColor: 'transparent',
       paddingHorizontal: t.spacing.md, height: 44, marginBottom: t.spacing.md,
     },
+    searchBarFocused: { borderColor: t.colors.primary },
     searchInput: {
       flex: 1, fontFamily: t.fonts.regular, fontSize: 15, color: t.colors.text, padding: 0,
       ...(Platform.OS === 'web' ? { outlineStyle: 'none' as any } : {}),
@@ -579,15 +748,35 @@ const makeStyles = (t: Theme, topInset: number, gutter: number) =>
       letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 10,
     },
 
+    noContentResults: { fontFamily: t.fonts.regular, fontSize: 14, color: t.colors.textSecondary },
+    contentResultCard: {
+      backgroundColor: t.colors.surface, borderRadius: t.radius.md, padding: 14, marginBottom: 10,
+      borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
+    },
+    contentResultTitle: { fontFamily: t.fonts.bold, fontSize: 14, color: t.colors.text, marginBottom: 6 },
+    contentResultRow: { paddingVertical: 4 },
+    contentResultSnippet: { fontFamily: t.fonts.serif, fontSize: 14, color: t.colors.textSecondary, lineHeight: 20 },
+    contentResultMore: { fontFamily: t.fonts.medium, fontSize: 11.5, color: t.colors.textMuted, marginTop: 4 },
+
     continueCard: {
       flexDirection: 'row', alignItems: 'center', gap: 14,
       backgroundColor: t.colors.surface, borderRadius: t.radius.lg, padding: 12,
       borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
       marginBottom: t.spacing.xl, ...shadow(3),
     },
-    continueCover: {
-      width: 62, height: 90, borderRadius: t.radius.sm, overflow: 'hidden',
+    continueCover: { width: 62, height: 90 },
+    // El recorte redondeado vive en un envoltorio interno: el contenedor de
+    // afuera queda sin `overflow: hidden` para que la cinta pueda colgar por
+    // encima del borde superior sin que se la corte.
+    continueCoverInner: {
+      width: '100%', height: '100%', borderRadius: t.radius.sm, overflow: 'hidden',
       backgroundColor: t.colors.surfaceAlt, alignItems: 'center', justifyContent: 'center',
+    },
+    ribbon: { position: 'absolute', top: -5, left: 10, alignItems: 'center' },
+    ribbonBody: { width: 13, height: 22, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
+    ribbonNotch: {
+      width: 0, height: 0, borderLeftWidth: 6.5, borderRightWidth: 6.5, borderTopWidth: 7,
+      borderLeftColor: 'transparent', borderRightColor: 'transparent',
     },
     continueBody: { flex: 1, minWidth: 0 },
     continueTitle: { fontFamily: t.fonts.bold, fontSize: 16, color: t.colors.text, letterSpacing: -0.2 },
