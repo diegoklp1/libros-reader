@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
-import { deleteWebFiles, isWebFileUri, saveWebFile } from './webFiles';
+import { deleteWebFiles, isWebFileUri, resolveUri, saveWebFile } from './webFiles';
 
 // Carpeta permanente donde vive el contenido importado de cada libro.
 // Los pickers devuelven URIs de caché temporal que el SO puede borrar;
@@ -57,6 +57,18 @@ export async function persistFile(
   if (existing.exists) await FileSystem.deleteAsync(dest, { idempotent: true });
   await FileSystem.copyAsync({ from: sourceUri, to: dest });
   return dest;
+}
+
+/** Lee el contenido de un .txt guardado, sea cual sea la plataforma. */
+export async function readTextFile(uri: string): Promise<string> {
+  if (Platform.OS === 'web') {
+    // En web la URI guardada apunta a IndexedDB: hay que traducirla primero.
+    const usable = resolveUri(uri);
+    if (!usable) throw new Error(`No se encontró el archivo guardado (${uri})`);
+    const response = await fetch(usable);
+    return response.text();
+  }
+  return FileSystem.readAsStringAsync(uri);
 }
 
 // Elimina todos los archivos asociados a un libro (al borrarlo de la biblioteca).

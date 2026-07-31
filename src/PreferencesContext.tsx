@@ -28,6 +28,13 @@ export interface Preferences {
   tapToTurn: boolean;
   /** Vibración corta al marcar, cambiar de página o elegir una opción. */
   haptics: boolean;
+  /**
+   * Última duración elegida para el temporizador de apagado, en minutos.
+   * Se recuerda el valor para no tener que reconfigurarlo cada vez, pero el
+   * temporizador en sí arranca apagado en cada sesión: activarlo es una
+   * decisión de cada vez, no una preferencia permanente.
+   */
+  sleepTimerMinutes: number;
 }
 
 const DEFAULTS: Preferences = {
@@ -42,6 +49,7 @@ const DEFAULTS: Preferences = {
   justify: true,
   tapToTurn: true,
   haptics: true,
+  sleepTimerMinutes: 30,
 };
 
 const STORAGE_KEY = '@preferences';

@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as NavigationBar from 'expo-navigation-bar';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,6 +29,7 @@ import { Segmented } from '../components/ui/segmented';
 import { Sheet } from '../components/ui/sheet';
 import { BookNote, useBooks } from '../src/BookContext';
 import { selectFeedback, successFeedback, tapFeedback } from '../src/haptics';
+import { readTextFile } from '../src/storage';
 import { ReadingMode, TextWidth, usePreferences } from '../src/PreferencesContext';
 import {
   Anchor,
@@ -99,19 +99,8 @@ function groupIntoPages(blocks: Block[]): Block[][] {
   return pages;
 }
 
-async function readTextFile(uri: string): Promise<string> {
-  if (Platform.OS === 'web') {
-    // En web la URI guardada apunta a IndexedDB: hay que traducirla primero.
-    const usable = resolveUri(uri);
-    if (!usable) throw new Error(`No se encontró el archivo guardado (${uri})`);
-    const response = await fetch(usable);
-    return response.text();
-  }
-  return FileSystem.readAsStringAsync(uri);
-}
-
 export default function ReaderScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, q } = useLocalSearchParams<{ id: string; q?: string }>();
   const { books, isLoading, updateProgress, updateBook, logActivity } = useBooks();
   const { prefs, setPreference } = usePreferences();
 
@@ -144,6 +133,16 @@ export default function ReaderScreen() {
 
   const [showControls, setShowControls] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showGoToPage, setShowGoToPage] = useState(false);
+  const [pageInput, setPageInput] = useState('');
+
+  // --- TEMPORIZADOR DE APAGADO ---
+  // Cuenta en reloj de pared (no en tiempo de reproducción): pensado para "que
+  // se apague cuando me duerma", no para pausarse solo si frenás el audio un
+  // momento. Se apaga solo, no queda prendido de una sesión a la siguiente.
+  const [showSleepSheet, setShowSleepSheet] = useState(false);
+  const [sleepEndAt, setSleepEndAt] = useState<number | null>(null);
+  const [sleepRemainingMs, setSleepRemainingMs] = useState(0);
 
   /**
    * Las barras se quedan montadas y entran/salen deslizándose, en vez de
@@ -185,7 +184,10 @@ export default function ReaderScreen() {
   const audioRestored = useRef(false);
 
   useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false }).catch(() => {});
+    // shouldPlayInBackground: en Android arma el servicio de MediaSession que ya
+    // trae expo-audio (controles en notificacion/pantalla de bloqueo); en iOS
+    // depende de declarar `UIBackgroundModes: ['audio']` en app.json.
+    setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -454,6 +456,15 @@ export default function ReaderScreen() {
     }
   }, [activeBlock, syncActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Si se llegó desde la búsqueda de toda la biblioteca (index.tsx), abre la
+  // búsqueda ya con esa palabra en cuanto el texto terminó de cargar.
+  useEffect(() => {
+    if (isLoadingText || !q || !q.trim()) return;
+    setIsSearching(true);
+    setSearchQuery(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoadingText, q]);
+
   // --- BÚSQUEDA ---
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -544,6 +555,44 @@ export default function ReaderScreen() {
       if (Platform.OS === 'android') NavigationBar.setVisibilityAsync('visible').catch(() => {});
     };
   }, []);
+
+  // Cuenta regresiva del temporizador de apagado. Corre en reloj de pared:
+  // si pausás el audio un momento, no se detiene ni se reinicia solo.
+  useEffect(() => {
+    if (!sleepEndAt) return;
+    const tick = () => {
+      const remaining = sleepEndAt - Date.now();
+      if (remaining <= 0) {
+        setSleepRemainingMs(0);
+        setSleepEndAt(null);
+        if (isPlaying) player.pause();
+        return;
+      }
+      setSleepRemainingMs(remaining);
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sleepEndAt]);
+
+  const startSleepTimer = (minutes: number) => {
+    selectFeedback();
+    setPreference('sleepTimerMinutes', minutes);
+    setSleepEndAt(Date.now() + minutes * 60_000);
+    setShowSleepSheet(false);
+  };
+
+  const cancelSleepTimer = () => {
+    selectFeedback();
+    setSleepEndAt(null);
+    setShowSleepSheet(false);
+  };
+
+  const extendSleepTimer = (minutes: number) => {
+    selectFeedback();
+    setSleepEndAt((prev) => (prev ?? Date.now()) + minutes * 60_000);
+  };
 
   const handlePlayPause = () => {
     if (!hasAudio) return;
@@ -996,13 +1045,21 @@ export default function ReaderScreen() {
                   <Ionicons name="chevron-back" size={26} color={currentTheme.text} />
                 </PressableScale>
 
-                <View style={styles.titleBox}>
+                <PressableScale
+                  style={styles.titleBox}
+                  scaleTo={0.97}
+                  disabled={pages.length <= 1}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ir a una página"
+                  onPress={() => { selectFeedback(); setPageInput(String(currentPageIndex + 1)); setShowGoToPage(true); }}
+                >
                   <Text style={[styles.barTitle, { color: currentTheme.text }]} numberOfLines={1}>{book.title}</Text>
                   <Text style={[styles.barSub, { color: currentTheme.text }]} numberOfLines={1}>
                     {pages.length > 0 ? `Pág ${currentPageIndex + 1} de ${pages.length}` : ''}
                     {minutesLeft > 0 ? ` · ~${minutesLeft} min restantes` : ''}
+                    {pages.length > 1 ? '  ›' : ''}
                   </Text>
-                </View>
+                </PressableScale>
 
                 {/* Solo cuatro acciones: entran cómodas hasta en la pantalla más
                     angosta. El resto vive en el panel de ajustes. */}
@@ -1074,6 +1131,14 @@ export default function ReaderScreen() {
                   >
                     <Ionicons name={syncEnabled ? 'link' : 'unlink'} size={20} color={syncEnabled ? currentTheme.tint : currentTheme.text} />
                   </PressableScale>
+                  <PressableScale
+                    onPress={() => setShowSleepSheet(true)}
+                    style={styles.speedBtn}
+                    scaleTo={0.88}
+                    accessibilityLabel={sleepEndAt ? 'Temporizador de apagado activo' : 'Temporizador de apagado'}
+                  >
+                    <Ionicons name={sleepEndAt ? 'moon' : 'moon-outline'} size={20} color={sleepEndAt ? currentTheme.tint : currentTheme.text} />
+                  </PressableScale>
                 </View>
 
                 <Text style={[styles.syncHint, { color: currentTheme.text }]} numberOfLines={1}>
@@ -1083,49 +1148,22 @@ export default function ReaderScreen() {
                       : 'Mantené presionado un párrafo para ajustar la sincronización'
                     : 'Seguimiento desactivado'}
                 </Text>
+
+                {sleepEndAt && (
+                  <PressableScale onPress={() => setShowSleepSheet(true)} scaleTo={0.97} accessibilityLabel="Ajustar temporizador de apagado">
+                    <Text style={[styles.syncHint, { color: currentTheme.tint, marginTop: 2 }]} numberOfLines={1}>
+                      Se apaga en {formatTime(sleepRemainingMs / 1000)}
+                    </Text>
+                  </PressableScale>
+                )}
               </View>
             )}
 
-            {/* Deslizador de páginas: recorrer el libro entero sin pasar de a una. */}
-            {pages.length > 1 && (
-              <View style={[styles.pageSection, hasAudio && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: currentTheme.text + '14' }]}>
-                <PressableScale
-                  onPress={() => goToPage(currentPageIndex - 1)}
-                  style={styles.pageNavBtn}
-                  scaleTo={0.85}
-                  disabled={currentPageIndex === 0}
-                  accessibilityLabel="Página anterior"
-                >
-                  <Ionicons name="chevron-back" size={20} color={currentTheme.text} style={{ opacity: currentPageIndex === 0 ? 0.25 : 0.85 }} />
-                </PressableScale>
-
-                <Slider
-                  style={{ flex: 1, height: 36 }}
-                  minimumValue={0}
-                  maximumValue={pages.length - 1}
-                  step={1}
-                  value={currentPageIndex}
-                  minimumTrackTintColor={currentTheme.tint}
-                  maximumTrackTintColor={currentTheme.text + '33'}
-                  thumbTintColor={currentTheme.tint}
-                  onSlidingComplete={(val) => goToPage(Math.round(val))}
-                />
-
-                <PressableScale
-                  onPress={() => goToPage(currentPageIndex + 1)}
-                  style={styles.pageNavBtn}
-                  scaleTo={0.85}
-                  disabled={currentPageIndex >= pages.length - 1}
-                  accessibilityLabel="Página siguiente"
-                >
-                  <Ionicons name="chevron-forward" size={20} color={currentTheme.text} style={{ opacity: currentPageIndex >= pages.length - 1 ? 0.25 : 0.85 }} />
-                </PressableScale>
-
-                <Text style={[styles.pageCounter, { color: currentTheme.text }]}>
-                  {Math.round(readingProgress * 100)}%
-                </Text>
-              </View>
-            )}
+            {/* El avance del libro entero ahora se ve y se controla desde el
+                indicador "Pág X de Y" del header (abre el panel de ir a página):
+                un deslizador de a 1 paso sobre 365 páginas no permitía llegar a
+                una página puntual, así que no ganaba nada frente a los toques en
+                los bordes del texto. */}
           </SafeAreaView>
         </Animated.View>
       )}
@@ -1288,6 +1326,135 @@ export default function ReaderScreen() {
 
           <View style={{ height: 12 }} />
         </ScrollView>
+      </Sheet>
+
+      {/* --- IR A LA PÁGINA --- */}
+      <Sheet
+        visible={showGoToPage}
+        onClose={() => setShowGoToPage(false)}
+        theme={sheetTheme}
+        background={currentTheme.controlBg}
+        handleColor={currentTheme.text + '33'}
+        draggable={false}
+      >
+        <Text style={[styles.goToPageTitle, { color: currentTheme.text }]}>Ir a la página</Text>
+        <Text style={[styles.goToPageSub, { color: currentTheme.text }]}>
+          {pages.length} páginas · {Math.round(readingProgress * 100)}% leído
+        </Text>
+
+        <View style={styles.goToPageRow}>
+          <TextInput
+            style={[styles.goToPageInput, { color: currentTheme.text, borderColor: currentTheme.text + '33' }]}
+            value={pageInput}
+            onChangeText={(v) => setPageInput(v.replace(/[^0-9]/g, ''))}
+            keyboardType="number-pad"
+            maxLength={String(pages.length).length}
+            selectTextOnFocus
+            autoFocus
+            accessibilityLabel="Número de página"
+            onSubmitEditing={() => {
+              const target = parseInt(pageInput, 10);
+              if (!target) return;
+              goToPage(Math.min(Math.max(target, 1), pages.length) - 1);
+              setShowGoToPage(false);
+            }}
+          />
+          <Text style={[styles.goToPageOf, { color: currentTheme.text }]}>de {pages.length}</Text>
+        </View>
+
+        <Slider
+          style={{ height: 36, marginTop: 4 }}
+          minimumValue={1}
+          maximumValue={pages.length}
+          step={1}
+          value={parseInt(pageInput, 10) || currentPageIndex + 1}
+          minimumTrackTintColor={currentTheme.tint}
+          maximumTrackTintColor={currentTheme.text + '33'}
+          thumbTintColor={currentTheme.tint}
+          onValueChange={(v) => setPageInput(String(Math.round(v)))}
+        />
+
+        <PressableScale
+          style={[styles.goToPageBtn, { backgroundColor: currentTheme.tint }]}
+          scaleTo={0.97}
+          haptic
+          accessibilityRole="button"
+          onPress={() => {
+            const target = parseInt(pageInput, 10);
+            if (!target) return;
+            goToPage(Math.min(Math.max(target, 1), pages.length) - 1);
+            setShowGoToPage(false);
+          }}
+        >
+          <Text style={[styles.goToPageBtnText, { color: currentTheme.background }]}>Ir</Text>
+        </PressableScale>
+      </Sheet>
+
+      {/* --- TEMPORIZADOR DE APAGADO --- */}
+      <Sheet
+        visible={showSleepSheet}
+        onClose={() => setShowSleepSheet(false)}
+        theme={sheetTheme}
+        background={currentTheme.controlBg}
+        handleColor={currentTheme.text + '33'}
+      >
+        <Text style={[styles.goToPageTitle, { color: currentTheme.text }]}>Temporizador de apagado</Text>
+
+        {sleepEndAt ? (
+          <>
+            <Text style={[styles.goToPageSub, { color: currentTheme.text, marginBottom: 4 }]}>
+              El audio se detiene en
+            </Text>
+            <Text style={[styles.sleepCountdown, { color: currentTheme.tint }]}>
+              {formatTime(sleepRemainingMs / 1000)}
+            </Text>
+
+            <View style={styles.sleepChipsRow}>
+              {[5, 10, 15].map((m) => (
+                <PressableScale
+                  key={m}
+                  style={[styles.sleepChip, { borderColor: currentTheme.text + '33' }]}
+                  scaleTo={0.94}
+                  onPress={() => extendSleepTimer(m)}
+                >
+                  <Text style={[styles.sleepChipText, { color: currentTheme.text }]}>+{m} min</Text>
+                </PressableScale>
+              ))}
+            </View>
+
+            <PressableScale
+              style={[styles.goToPageBtn, { backgroundColor: currentTheme.text + '14', marginTop: 20 }]}
+              scaleTo={0.97}
+              onPress={cancelSleepTimer}
+            >
+              <Text style={[styles.goToPageBtnText, { color: currentTheme.text }]}>Desactivar</Text>
+            </PressableScale>
+          </>
+        ) : (
+          <>
+            <Text style={[styles.goToPageSub, { color: currentTheme.text }]}>
+              El audio se pausa solo al cumplirse el tiempo. Útil para dormir escuchando; para sesiones largas
+              (viajes, por ejemplo) simplemente no lo actives.
+            </Text>
+
+            <View style={styles.sleepChipsRow}>
+              {[10, 15, 30, 45, 60, 90].map((m) => (
+                <PressableScale
+                  key={m}
+                  style={[
+                    styles.sleepChip,
+                    { borderColor: currentTheme.text + '33' },
+                    m === prefs.sleepTimerMinutes && { borderColor: currentTheme.tint, backgroundColor: currentTheme.tint + '18' },
+                  ]}
+                  scaleTo={0.94}
+                  onPress={() => startSleepTimer(m)}
+                >
+                  <Text style={[styles.sleepChipText, { color: currentTheme.text }]}>{m} min</Text>
+                </PressableScale>
+              ))}
+            </View>
+          </>
+        )}
       </Sheet>
 
       {/* --- MENÚ DE BLOQUE (marcar y sincronización) --- */}
@@ -1624,9 +1791,21 @@ const makeStyles = () =>
     speedBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     syncHint: { fontFamily: 'Inter', fontSize: 10.5, textAlign: 'center', opacity: 0.55, marginTop: 8 },
 
-    pageSection: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6 },
-    pageNavBtn: { padding: 8 },
-    pageCounter: { fontFamily: 'InterSemi', fontSize: 12, width: 40, textAlign: 'right', opacity: 0.7 },
+    goToPageTitle: { fontFamily: 'InterBold', fontSize: 17 },
+    goToPageSub: { fontFamily: 'Inter', fontSize: 12.5, opacity: 0.6, marginTop: 3, marginBottom: 18 },
+    goToPageRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    goToPageInput: {
+      flex: 1, borderWidth: 1.5, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16,
+      fontFamily: 'InterBold', fontSize: 20, textAlign: 'center',
+    },
+    goToPageOf: { fontFamily: 'InterSemi', fontSize: 15, opacity: 0.6 },
+    goToPageBtn: { marginTop: 18, borderRadius: 12, paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
+    goToPageBtnText: { fontFamily: 'InterBold', fontSize: 16 },
+
+    sleepCountdown: { fontFamily: 'InterBold', fontSize: 40, textAlign: 'center', marginVertical: 14 },
+    sleepChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+    sleepChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, borderWidth: 1.5 },
+    sleepChipText: { fontFamily: 'InterSemi', fontSize: 14 },
 
     themeRow: { flexDirection: 'row', gap: 8 },
     themeChip: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12 },
