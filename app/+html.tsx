@@ -13,8 +13,8 @@ export default function Root({ children }: PropsWithChildren) {
           name="description"
           content="Tu biblioteca, lectura y audiolibros sincronizados entre PC y celular."
         />
-        <link rel="manifest" href="/libros-reader/manifest.webmanifest" />
-        <link rel="apple-touch-icon" href="/libros-reader/icon-192.png" />
+        <link rel="manifest" href="/libros-reader-web/manifest.webmanifest" />
+        <link rel="apple-touch-icon" href="/libros-reader-web/icon-192.png" />
         <ScrollViewStyleReset />
         <style dangerouslySetInnerHTML={{ __html: responsiveBackground }} />
       </head>

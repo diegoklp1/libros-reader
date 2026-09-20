@@ -67,7 +67,7 @@ El bucket `book-files` es privado y las políticas solo permiten acceder a la ca
 
 ## 🌐 Web sin levantar nada en la PC
 
-El workflow [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) exporta la app y la publica en GitHub Pages con cada cambio de `main`. Las dos variables públicas de Supabase deben existir como secrets del repositorio. La app incluye un manifiesto instalable para agregarla al escritorio o a la pantalla de inicio.
+La versión compilada se publica en [GitHub Pages](https://diegoklp1.github.io/libros-reader-web/) desde el repositorio público `libros-reader-web`; este repositorio principal y los archivos de trabajo siguen privados. La app incluye un manifiesto instalable para agregarla al escritorio o a la pantalla de inicio.
 
 ## 🚀 Instalación y Uso Local
 
