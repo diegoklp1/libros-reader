@@ -92,8 +92,10 @@ async function uploadAsset(
 }
 
 async function syncAssets(userId: string, book: Book, bookKey: string) {
-  const update: Partial<BookAssetUpdate> = { bookKey };
+  const update: Partial<BookAssetUpdate> = {};
   const warnings: string[] = [];
+
+  if (book.bookKey !== bookKey) update.bookKey = bookKey;
 
   if (book.txtUri && !book.cloudTextPath) {
     update.cloudTextPath = (await uploadAsset(userId, book, bookKey, 'text', book.txtUri)).path;
@@ -159,6 +161,9 @@ function preferLocalAsset(
   remotePath: string | null,
   remoteUrl: string | null
 ) {
+  // Una fila creada por la versión anterior solo tiene metadatos/progreso.
+  // Nunca debe borrar el archivo local por traer una ruta cloud vacía.
+  if (!remotePath) return localUri ?? null;
   return localUri && localPath === remotePath ? localUri : remoteUrl;
 }
 
@@ -176,7 +181,7 @@ export async function pushAll(
 
   for (let i = 0; i < books.length; i++) {
     const result = await syncAssets(userId, books[i], keys[i]);
-    bookUpdates[books[i].id] = result.update;
+    if (Object.keys(result.update).length) bookUpdates[books[i].id] = result.update;
     warnings.push(...result.warnings);
   }
 
@@ -299,8 +304,7 @@ export async function pullAndMerge(
     const deletedAt = remote.deleted_at ? new Date(remote.deleted_at).getTime() : 0;
 
     if (deletedAt) {
-      if (local && deletedAt >= (local.updatedAt ?? 0)) changed = true;
-      else if (local) mergedBooks.push(local);
+      if (local) changed = true;
       continue;
     }
 
@@ -342,8 +346,9 @@ export async function pullAndMerge(
     }
 
     const localUpdatedAt = local.updatedAt ?? local.lastOpenedAt ?? local.createdAt ?? 0;
+    const remoteIsNewer = remoteUpdatedAt > localUpdatedAt;
     let merged = local;
-    if (remoteUpdatedAt > localUpdatedAt) {
+    if (remoteIsNewer) {
       changed = true;
       merged = {
         ...local,
@@ -369,10 +374,11 @@ export async function pullAndMerge(
         cloudAudioPath: remote.audio_path,
         cloudCuesPath: remote.cues_path,
         audioSize: remote.audio_size,
+        notes: remoteNotesForBook,
       };
     }
 
-    if (remoteNotesForBook.length) {
+    if (!remoteIsNewer && remoteNotesForBook.length) {
       const byId = new Map((merged.notes ?? []).map((n) => [n.id, n]));
       for (const remoteNote of remoteNotesForBook) {
         const existing = byId.get(remoteNote.id);

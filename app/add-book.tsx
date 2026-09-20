@@ -136,10 +136,10 @@ export default function AddBookScreen() {
         // Si se eligió un archivo distinto hay que volver a subir ese recurso.
         // Mantener la ruta anterior haría que los demás dispositivos siguieran
         // viendo la versión vieja aunque esta ficha ya muestre la nueva.
-        cloudCoverPath: finalCover === editingBook?.coverUri ? editingBook?.cloudCoverPath : null,
-        cloudTextPath: finalTxt === editingBook?.txtUri ? editingBook?.cloudTextPath : null,
-        cloudAudioPath: finalAudio === editingBook?.audioUri ? editingBook?.cloudAudioPath : null,
-        cloudCuesPath: finalCues === editingBook?.cuesUri ? editingBook?.cloudCuesPath : null,
+        cloudCoverPath: coverUri === editingBook?.coverUri ? editingBook?.cloudCoverPath : null,
+        cloudTextPath: txtUri === editingBook?.txtUri ? editingBook?.cloudTextPath : null,
+        cloudAudioPath: audioUri === editingBook?.audioUri ? editingBook?.cloudAudioPath : null,
+        cloudCuesPath: cuesUri === editingBook?.cuesUri ? editingBook?.cloudCuesPath : null,
       };
 
       if (editingBook) updateBook(editingBook.id, data);

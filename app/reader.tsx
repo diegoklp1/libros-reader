@@ -462,7 +462,6 @@ export default function ReaderScreen() {
     if (isLoadingText || !q || !q.trim()) return;
     setIsSearching(true);
     setSearchQuery(q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoadingText, q]);
 
   // --- BÚSQUEDA ---

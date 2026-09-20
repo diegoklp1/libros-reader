@@ -175,7 +175,6 @@ export default function HomeScreen() {
       setIsContentSearching(false);
     }, 350);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, books]);
 
   const openBookAtSearch = (book: Book) => {

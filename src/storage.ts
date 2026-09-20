@@ -83,7 +83,11 @@ export async function readTextFile(uri: string): Promise<string> {
 export async function uploadBodyForUri(uri: string): Promise<Blob | ArrayBuffer> {
   const usable = resolveUri(uri) ?? uri;
   const response = await fetch(usable);
-  if (!response.ok) throw new Error(`No se pudo leer el archivo (${response.status})`);
+  // React Native devuelve status 0 para URI file:// y content:// aun cuando
+  // pudo leerlas; `ok` solo es una señal válida en recursos HTTP.
+  if (/^https?:/i.test(usable) && !response.ok) {
+    throw new Error(`No se pudo leer el archivo (${response.status})`);
+  }
   return Platform.OS === 'web' ? response.blob() : response.arrayBuffer();
 }
 
