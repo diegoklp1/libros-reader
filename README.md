@@ -13,7 +13,9 @@ Una aplicación móvil multiplataforma desarrollada con React Native y Expo, dis
 * **Gestión Inteligente de Biblioteca:** Buscador por título/autor, ordenamiento (recientes, título, progreso), categorías dinámicas, archivado y auto-archivado opcional al terminar.
 * **Modo Oscuro Real:** Tema Sistema / Claro / Oscuro aplicado en toda la app y persistido.
 * **Resaltados y Notas:** Mantené presionado un párrafo y elegí **“Recordar esta parte”**: queda marcado con una barra sutil al margen y se genera una nota con la cita. Podés **extender** la marca a los párrafos siguientes para cubrir pasajes largos, agregarle un comentario, y desde “Mis Notas” volver al fragmento exacto (no solo a la página). Conviven con las notas escritas a mano de siempre. La unidad de marcado es el bloque de ~280 caracteres (limitación de React Native: no expone la selección de texto dentro de un `<Text>`).
-* **Offline-First real:** Los archivos importados (texto, audio, portada) se **copian a almacenamiento permanente** para que la biblioteca no se rompa cuando el sistema limpia la caché. Estado y metadatos vía `AsyncStorage` + Context API.
+* **Biblioteca en la nube:** La sesión, fichas, textos, portadas, notas, progreso y estadísticas se sincronizan con Supabase. Un libro agregado desde la PC aparece al abrir la app en el celular.
+* **Audio sin ocupar el celular:** Los audiolibros viven en un bucket privado de Supabase Storage y se reproducen por streaming con enlaces temporales. El dispositivo donde se importaron conserva además su copia local para poder seguir usándolos offline.
+* **Offline-First híbrido:** La copia local se usa cuando existe; si el libro llegó desde otro dispositivo, la app usa la versión privada de la nube. Al volver a primer plano actualiza la biblioteca y el progreso.
 
 ## 📕 Preparar libros (texto + audiolibro + sincronización)
 
@@ -54,6 +56,18 @@ python tools/procesar_libro.py LIBRO2/CHUNKS_PDF LIBRO2/SALIDA --reglas LIBRO2/r
 | ![Inicio](./assets//images/inicio.jpg) | ![Lector](./assets//images/reader.jpeg) | ![Estadísticas](./assets//images/agregar-libro.jpeg) |
 
 ---
+
+## ☁️ Puesta en marcha de la nube (una sola vez)
+
+1. Ejecutar [`docs/supabase_schema.sql`](docs/supabase_schema.sql) en un proyecto nuevo, o solo [`docs/supabase_cloud_library.sql`](docs/supabase_cloud_library.sql) si ya existían las tablas.
+2. Configurar `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` en `.env`.
+3. Crear el usuario desde Supabase Authentication. La app no expone registro público.
+
+El bucket `book-files` es privado y las políticas solo permiten acceder a la carpeta cuyo nombre coincide con el usuario autenticado. La migración admite archivos de hasta 5 GB, aunque el límite efectivo también depende del plan de Supabase.
+
+## 🌐 Web sin levantar nada en la PC
+
+El workflow [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) exporta la app y la publica en GitHub Pages con cada cambio de `main`. Las dos variables públicas de Supabase deben existir como secrets del repositorio. La app incluye un manifiesto instalable para agregarla al escritorio o a la pantalla de inicio.
 
 ## 🚀 Instalación y Uso Local
 

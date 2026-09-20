@@ -70,7 +70,12 @@ export async function bookContentKey(book: {
   title: string;
   author?: string;
   txtUri: string | null;
+  bookKey?: string;
 }): Promise<string> {
+  // Los libros que llegan de la nube ya tienen una huella estable. Usarla
+  // evita volver a descargar el texto solo para recalcularla y permite que la
+  // misma ficha conserve su identidad aunque la URL firmada cambie.
+  if (book.bookKey) return book.bookKey;
   const cached = cache.get(book.id);
   if (cached) return cached;
 

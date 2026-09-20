@@ -133,10 +133,17 @@ export default function AddBookScreen() {
         txtUri: finalTxt,
         audioUri: finalAudio,
         cuesUri: finalCues,
+        // Si se eligió un archivo distinto hay que volver a subir ese recurso.
+        // Mantener la ruta anterior haría que los demás dispositivos siguieran
+        // viendo la versión vieja aunque esta ficha ya muestre la nueva.
+        cloudCoverPath: finalCover === editingBook?.coverUri ? editingBook?.cloudCoverPath : null,
+        cloudTextPath: finalTxt === editingBook?.txtUri ? editingBook?.cloudTextPath : null,
+        cloudAudioPath: finalAudio === editingBook?.audioUri ? editingBook?.cloudAudioPath : null,
+        cloudCuesPath: finalCues === editingBook?.cuesUri ? editingBook?.cloudCuesPath : null,
       };
 
       if (editingBook) updateBook(editingBook.id, data);
-      else addBook(data as NewBook, bookId);
+      else await addBook(data as NewBook, bookId);
 
       successFeedback();
       if (router.canGoBack()) router.back();
@@ -196,7 +203,7 @@ export default function AddBookScreen() {
                 theme={theme}
                 icon="musical-notes"
                 label="Audiolibro"
-                hint="mp3, m4a… — opcional"
+                hint="opcional · se guarda en la nube y se reproduce por streaming"
                 selected={!!audioUri}
                 onPress={pickAudio}
                 disabled={isProcessing}

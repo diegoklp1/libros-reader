@@ -1,4 +1,4 @@
--- Esquema de sincronizacion para LectorLibros (solo progreso/metadata, no archivos).
+-- Esquema de sincronización para LectorLibros (biblioteca y archivos en nube).
 -- Correr una sola vez en el SQL Editor de Supabase.
 
 create table if not exists public.books (
@@ -21,6 +21,12 @@ create table if not exists public.books (
   created_at timestamptz not null default now(),
   last_opened_at timestamptz,
   updated_at timestamptz not null default now(),
+  content_path text,
+  cover_path text,
+  audio_path text,
+  cues_path text,
+  audio_size bigint,
+  deleted_at timestamptz,
   unique (user_id, book_key)
 );
 
@@ -79,3 +85,6 @@ create trigger notes_set_updated_at before update on public.notes
   for each row execute function public.set_updated_at();
 create trigger daily_stats_set_updated_at before update on public.daily_stats
   for each row execute function public.set_updated_at();
+
+-- Después de crear las tablas, ejecutar también `supabase_cloud_library.sql`
+-- para crear el bucket privado y sus políticas de acceso.

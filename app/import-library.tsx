@@ -70,7 +70,7 @@ export default function ImportLibraryScreen() {
     for (const item of items) {
       try {
         const { bookId, data } = await materializeImportItem(item);
-        addBook(data, bookId);
+        await addBook(data, bookId);
         imported++;
       } catch {
         failedTitles.push(item.entry.titulo);

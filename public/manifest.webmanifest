@@ -1,0 +1,14 @@
+{
+  "name": "LectorLibros",
+  "short_name": "LectorLibros",
+  "description": "Biblioteca y progreso sincronizados entre PC y celular",
+  "start_url": "/libros-reader/",
+  "scope": "/libros-reader/",
+  "display": "standalone",
+  "background_color": "#F5F1E8",
+  "theme_color": "#7A5C3E",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

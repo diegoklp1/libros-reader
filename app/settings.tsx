@@ -17,7 +17,7 @@ import { READING_FONT_ORDER, READING_FONTS, ReadingFontKey, shadow, Theme } from
 const APP_VERSION = Constants.expoConfig?.version ?? '2.3.0';
 
 export default function SettingsScreen() {
-  const { books, dailyStats, clearBooks, clearStats, resetAllData, isSyncing, lastSyncedAt, syncError } = useBooks();
+  const { books, dailyStats, clearBooks, clearStats, resetAllData, isSyncing, lastSyncedAt, syncError, syncWarning, syncNow } = useBooks();
   const { session, signOut } = useAuth();
   const { prefs, setPreference } = usePreferences();
   const theme = useTheme();
@@ -160,14 +160,27 @@ export default function SettingsScreen() {
                 <Text style={styles.settingSub}>
                   {syncError
                     ? `Error al sincronizar: ${syncError}`
+                    : syncWarning
+                      ? syncWarning
                     : isSyncing
                       ? 'Sincronizando…'
                       : lastSyncedAt
                         ? `Sincronizado a las ${new Date(lastSyncedAt).toLocaleTimeString()}`
-                        : 'Progreso y notas se sincronizan entre tus dispositivos.'}
+                        : 'Biblioteca, archivos y progreso sincronizados entre tus dispositivos.'}
                 </Text>
               </View>
             </View>
+
+            <PressableScale
+              style={styles.signOutButton}
+              scaleTo={0.97}
+              accessibilityRole="button"
+              disabled={isSyncing}
+              onPress={syncNow}
+            >
+              <Ionicons name="sync-outline" size={19} color={theme.colors.primary} />
+              <Text style={[styles.signOutText, { color: theme.colors.primary }]}>Sincronizar ahora</Text>
+            </PressableScale>
 
             <PressableScale
               style={styles.signOutButton}

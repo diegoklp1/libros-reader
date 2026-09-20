@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { useAuth } from './AuthContext';
-import { deleteBookRemote, pullAndMerge, pullProgressForBook, pushAll } from './cloudSync';
+import { deleteBookRemote, deleteStatsRemote, pullAndMerge, pullProgressForBook, pushAll } from './cloudSync';
 import { deleteBookFiles } from './storage';
 import { clearWebFiles, primeWebFiles } from './webFiles';
 
@@ -53,6 +54,14 @@ export interface Book {
   lastOpenedAt?: number;
   /** Última modificación local, en ms. Sirve para resolver conflictos al sincronizar con Supabase. */
   updatedAt?: number;
+  /** Huella estable compartida por todos los dispositivos. */
+  bookKey?: string;
+  /** Rutas privadas en Supabase Storage (las URI locales se conservan para offline). */
+  cloudTextPath?: string | null;
+  cloudCoverPath?: string | null;
+  cloudAudioPath?: string | null;
+  cloudCuesPath?: string | null;
+  audioSize?: number | null;
 }
 
 export interface NewBook {
@@ -80,7 +89,7 @@ interface BookContextType {
   books: Book[];
   dailyStats: Record<string, DailyStat>;
   isLoading: boolean;
-  addBook: (book: NewBook, id?: string) => string;
+  addBook: (book: NewBook, id?: string) => Promise<string>;
   deleteBook: (id: string) => void;
   updateProgress: (id: string, currentPage: number, audioPosition: number, totalPages?: number) => void;
   updateBook: (id: string, updatedData: Partial<Book>) => void;
@@ -91,6 +100,8 @@ interface BookContextType {
   isSyncing: boolean;
   lastSyncedAt: number | null;
   syncError: string | null;
+  syncWarning: string | null;
+  syncNow: () => Promise<void>;
 }
 
 const BookContext = createContext<BookContextType | undefined>(undefined);
@@ -125,11 +136,14 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
   // El pull inicial (al loguear) mezcla estado remoto en el local. Sin esta
   // marca, el efecto de push vería ese cambio de estado y lo subiría de
   // vuelta antes de que termine de asentarse, generando un round-trip inútil.
   const pulledForUser = useRef<string | null>(null);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pullInFlight = useRef<Promise<void> | null>(null);
+  const lastPullStartedAt = useRef(0);
 
   // Cargar datos al iniciar
   useEffect(() => {
@@ -173,11 +187,12 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Al iniciar sesión (o al recuperar una sesión guardada), traer el progreso
   // de la nube y combinarlo con lo local. Se hace una sola vez por sesión:
   // después de esto, el resto del ida y vuelta lo maneja el push de abajo.
-  useEffect(() => {
-    if (isLoading || !userId || pulledForUser.current === userId) return;
-    pulledForUser.current = userId;
+  const syncNow = useCallback(async () => {
+    if (isLoading || !userId) return;
+    if (pullInFlight.current) return pullInFlight.current;
+    lastPullStartedAt.current = Date.now();
     setIsSyncing(true);
-    pullAndMerge(userId, books, dailyStats)
+    const task = pullAndMerge(userId, books, dailyStats)
       .then(({ books: merged, dailyStats: mergedStats, changed }) => {
         if (changed) {
           setBooks(merged);
@@ -190,9 +205,29 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Error sincronizando con Supabase (pull)', e);
         setSyncError(e?.message ?? 'No se pudo sincronizar');
       })
-      .finally(() => setIsSyncing(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, isLoading]);
+      .finally(() => {
+        pullInFlight.current = null;
+        setIsSyncing(false);
+      });
+    pullInFlight.current = task;
+    return task;
+  }, [userId, isLoading, books, dailyStats]);
+
+  useEffect(() => {
+    if (isLoading || !userId || pulledForUser.current === userId) return;
+    pulledForUser.current = userId;
+    syncNow();
+  }, [userId, isLoading, syncNow]);
+
+  // Una biblioteca agregada desde la PC aparece al volver al celular, aunque
+  // la sesión haya quedado abierta. El límite evita pulls duplicados al alternar
+  // rápidamente entre ventanas.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && Date.now() - lastPullStartedAt.current > 10_000) syncNow();
+    });
+    return () => subscription.remove();
+  }, [syncNow]);
 
   // Al cerrar sesión, permite que el próximo login vuelva a traer datos.
   useEffect(() => {
@@ -207,8 +242,14 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
     pushTimer.current = setTimeout(() => {
       setIsSyncing(true);
       pushAll(userId, books, dailyStats)
-        .then(() => {
+        .then(({ bookUpdates, warnings }) => {
+          if (Object.keys(bookUpdates).length) {
+            setBooks((current) => current.map((book) => (
+              bookUpdates[book.id] ? { ...book, ...bookUpdates[book.id] } : book
+            )));
+          }
           setSyncError(null);
+          setSyncWarning(warnings.length ? warnings.join(' · ') : null);
           setLastSyncedAt(Date.now());
         })
         .catch((e) => {
@@ -223,32 +264,52 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [books, dailyStats, userId]);
 
-  const addBook = (newBook: NewBook, id?: string) => {
+  const addBook = async (newBook: NewBook, id?: string) => {
     const bookId = id ?? genId();
     const now = Date.now();
-    setBooks((prev) => [
-      ...prev,
-      {
-        ...newBook,
-        id: bookId,
-        currentPage: 0,
-        audioPosition: 0,
-        isArchived: false,
-        isFinished: false,
-        notes: [],
-        createdAt: now,
-        updatedAt: now,
-      },
-    ]);
+    let book: Book = {
+      ...newBook,
+      id: bookId,
+      currentPage: 0,
+      audioPosition: 0,
+      isArchived: false,
+      isFinished: false,
+      notes: [],
+      createdAt: now,
+      updatedAt: now,
+    };
 
-    // Si el mismo archivo ya tiene progreso en la nube desde otro
-    // dispositivo, lo trae para no arrancar de cero en este.
     if (userId) {
-      pullProgressForBook(userId, { id: bookId, title: newBook.title, author: newBook.author, txtUri: newBook.txtUri })
-        .then((progress) => {
-          if (progress) updateBook(bookId, progress);
-        })
-        .catch((e) => console.error('Error trayendo progreso previo del libro', e));
+      try {
+        const progress = await pullProgressForBook(userId, book);
+        if (progress) book = { ...book, ...progress };
+      } catch (e) {
+        // La primera migración puede todavía no estar aplicada. El alta local
+        // sigue siendo válida y el push de abajo mostrará el error accionable.
+        console.error('Error trayendo progreso previo del libro', e);
+      }
+    }
+
+    setBooks((prev) => [...prev, book]);
+
+    // Confirma el alta remota antes de que la pantalla de carga se cierre. Así
+    // el usuario puede cerrar la pestaña apenas vuelve a la biblioteca sin
+    // cortar la transferencia del texto/portada (y del audio si entra).
+    if (userId) {
+      setIsSyncing(true);
+      try {
+        const { bookUpdates, warnings } = await pushAll(userId, [book], {});
+        const update = bookUpdates[bookId];
+        if (update) setBooks((current) => current.map((item) => item.id === bookId ? { ...item, ...update } : item));
+        setSyncError(null);
+        setSyncWarning(warnings.length ? warnings.join(' · ') : null);
+        setLastSyncedAt(Date.now());
+      } catch (e: any) {
+        console.error('Error subiendo el libro nuevo', e);
+        setSyncError(e?.message ?? 'El libro quedó local, pero no se pudo subir');
+      } finally {
+        setIsSyncing(false);
+      }
     }
 
     return bookId;
@@ -326,6 +387,7 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearBooks = async () => {
     try {
       const ids = books.map((b) => b.id);
+      if (userId) await Promise.all(books.map((book) => deleteBookRemote(userId, book)));
       await AsyncStorage.removeItem('@books');
       setBooks([]);
       await Promise.all(ids.map((id) => deleteBookFiles(id)));
@@ -336,6 +398,7 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearStats = async () => {
     try {
+      if (userId) await deleteStatsRemote(userId);
       await AsyncStorage.removeItem('@dailyStats');
       setDailyStats({});
     } catch (error) {
@@ -346,6 +409,10 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const resetAllData = async () => {
     try {
       const ids = books.map((b) => b.id);
+      if (userId) {
+        await Promise.all(books.map((book) => deleteBookRemote(userId, book)));
+        await deleteStatsRemote(userId);
+      }
       await AsyncStorage.multiRemove(['@books', '@dailyStats']);
       setBooks([]);
       setDailyStats({});
@@ -374,6 +441,8 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isSyncing,
         lastSyncedAt,
         syncError,
+        syncWarning,
+        syncNow,
       }}
     >
       {children}

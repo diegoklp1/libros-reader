@@ -61,7 +61,10 @@ export async function persistFile(
 
 /** Lee el contenido de un .txt guardado, sea cual sea la plataforma. */
 export async function readTextFile(uri: string): Promise<string> {
-  if (Platform.OS === 'web') {
+  // Los libros sincronizados se sirven mediante URLs firmadas de Supabase en
+  // cualquier plataforma. `FileSystem.readAsStringAsync` no lee https, por lo
+  // que esos recursos se resuelven con fetch también en Android/iOS.
+  if (Platform.OS === 'web' || /^(https?:|blob:|data:)/i.test(uri)) {
     // En web la URI guardada apunta a IndexedDB: hay que traducirla primero.
     const usable = resolveUri(uri);
     if (!usable) throw new Error(`No se encontró el archivo guardado (${uri})`);
@@ -69,6 +72,19 @@ export async function readTextFile(uri: string): Promise<string> {
     return response.text();
   }
   return FileSystem.readAsStringAsync(uri);
+}
+
+/**
+ * Devuelve un cuerpo que Supabase Storage puede subir. En web conservamos el
+ * Blob para que el navegador pueda transmitir archivos grandes sin duplicar
+ * todo el audiolibro en memoria. En nativo usamos ArrayBuffer, compatible con
+ * storage-js y con las URI file/content de los selectores de Expo.
+ */
+export async function uploadBodyForUri(uri: string): Promise<Blob | ArrayBuffer> {
+  const usable = resolveUri(uri) ?? uri;
+  const response = await fetch(usable);
+  if (!response.ok) throw new Error(`No se pudo leer el archivo (${response.status})`);
+  return Platform.OS === 'web' ? response.blob() : response.arrayBuffer();
 }
 
 // Elimina todos los archivos asociados a un libro (al borrarlo de la biblioteca).
