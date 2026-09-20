@@ -14,7 +14,7 @@ import { selectFeedback } from '../src/haptics';
 import { ReadingMode, ThemeMode, usePreferences, useTheme } from '../src/PreferencesContext';
 import { READING_FONT_ORDER, READING_FONTS, ReadingFontKey, shadow, Theme } from '../src/theme';
 
-const APP_VERSION = Constants.expoConfig?.version ?? '2.3.0';
+const APP_VERSION = Constants.expoConfig?.version ?? '3.0.0';
 
 export default function SettingsScreen() {
   const { books, dailyStats, clearBooks, clearStats, resetAllData, isSyncing, lastSyncedAt, syncError, syncWarning, syncNow } = useBooks();

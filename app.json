@@ -2,7 +2,7 @@
   "expo": {
     "name": "LectorLibros",
     "slug": "LectorLibros",
-    "version": "2.3.0",
+    "version": "3.0.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "lectorlibros",
@@ -15,6 +15,7 @@
       }
     },
     "android": {
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#3A3A3C",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
