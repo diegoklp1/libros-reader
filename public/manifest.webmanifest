@@ -1,6 +1,7 @@
 {
   "name": "LectorLibros",
   "short_name": "LectorLibros",
+  "id": "/libros-reader-web/",
   "description": "Biblioteca y progreso sincronizados entre PC y celular",
   "start_url": "/libros-reader-web/",
   "scope": "/libros-reader-web/",

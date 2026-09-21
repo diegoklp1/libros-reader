@@ -1,10 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { useAuth } from './AuthContext';
-import { deleteBookRemote, deleteStatsRemote, pullAndMerge, pullProgressForBook, pushAll } from './cloudSync';
+import {
+  cacheLibraryForOffline,
+  deleteBookRemote,
+  deleteStatsRemote,
+  isBookReadyOffline,
+  pullAndMerge,
+  pullProgressForBook,
+  pushAll,
+} from './cloudSync';
 import { deleteBookFiles } from './storage';
-import { clearWebFiles, primeWebFiles } from './webFiles';
+import { clearWebFiles, primeWebFiles, requestPersistentWebStorage } from './webFiles';
 
 // --- INTERFACES DE LIBROS Y NOTAS ---
 export interface BookNote {
@@ -85,6 +93,13 @@ export interface DailyStat {
   booksOpened: string[]; // IDs de los libros que abriste este día
 }
 
+export interface OfflineDownloadState {
+  ready: number;
+  total: number;
+  isDownloading: boolean;
+  error: string | null;
+}
+
 interface BookContextType {
   books: Book[];
   dailyStats: Record<string, DailyStat>;
@@ -101,6 +116,7 @@ interface BookContextType {
   lastSyncedAt: number | null;
   syncError: string | null;
   syncWarning: string | null;
+  offlineDownload: OfflineDownloadState;
   syncNow: () => Promise<void>;
 }
 
@@ -137,6 +153,12 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  const [offlineDownload, setOfflineDownload] = useState<OfflineDownloadState>({
+    ready: 0,
+    total: 0,
+    isDownloading: false,
+    error: null,
+  });
   // El pull inicial (al loguear) mezcla estado remoto en el local. Sin esta
   // marca, el efecto de push vería ese cambio de estado y lo subiría de
   // vuelta antes de que termine de asentarse, generando un round-trip inútil.
@@ -156,7 +178,16 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // nada: sus URIs no se pueden resolver hasta que esto termina.
           primeWebFiles(),
         ]);
-        if (storedBooks) setBooks(JSON.parse(storedBooks));
+        if (storedBooks) {
+          const parsed = JSON.parse(storedBooks) as Book[];
+          setBooks(parsed);
+          setOfflineDownload({
+            ready: parsed.filter(isBookReadyOffline).length,
+            total: parsed.length,
+            isDownloading: false,
+            error: null,
+          });
+        }
         if (storedStats) setDailyStats(JSON.parse(storedStats));
       } catch (error) {
         console.error('Error loading data', error);
@@ -176,6 +207,16 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   }, [books]);
 
+  useEffect(() => {
+    if (!hydrated.current || offlineDownload.isDownloading) return;
+    const ready = books.filter(isBookReadyOffline).length;
+    setOfflineDownload((current) => (
+      current.ready === ready && current.total === books.length
+        ? current
+        : { ...current, ready, total: books.length }
+    ));
+  }, [books, offlineDownload.isDownloading]);
+
   // Guardar Estadísticas (solo tras hidratar)
   useEffect(() => {
     if (!hydrated.current) return;
@@ -184,31 +225,73 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   }, [dailyStats]);
 
-  // Al iniciar sesión (o al recuperar una sesión guardada), traer el progreso
-  // de la nube y combinarlo con lo local. Se hace una sola vez por sesión:
-  // después de esto, el resto del ida y vuelta lo maneja el push de abajo.
+  // Sincronización bidireccional: primero combina nube/local, después sube el
+  // resultado (incluido el progreso hecho offline) y finalmente deja una copia
+  // permanente de cada archivo privado en el dispositivo.
   const syncNow = useCallback(async () => {
     if (isLoading || !userId) return;
     if (pullInFlight.current) return pullInFlight.current;
     lastPullStartedAt.current = Date.now();
     setIsSyncing(true);
-    const task = pullAndMerge(userId, books, dailyStats)
-      .then(({ books: merged, dailyStats: mergedStats, changed }) => {
-        if (changed) {
+
+    const task = (async () => {
+      try {
+        const pulled = await pullAndMerge(userId, books, dailyStats);
+        let merged = pulled.books;
+        setBooks(merged);
+        setDailyStats(pulled.dailyStats);
+
+        const pushed = await pushAll(userId, merged, pulled.dailyStats);
+        if (Object.keys(pushed.bookUpdates).length) {
+          merged = merged.map((book) => (
+            pushed.bookUpdates[book.id] ? { ...book, ...pushed.bookUpdates[book.id] } : book
+          ));
           setBooks(merged);
-          setDailyStats(mergedStats);
         }
+
         setSyncError(null);
         setLastSyncedAt(Date.now());
-      })
-      .catch((e) => {
+        setIsSyncing(false);
+        await requestPersistentWebStorage();
+        setOfflineDownload({
+          ready: merged.filter(isBookReadyOffline).length,
+          total: merged.length,
+          isDownloading: true,
+          error: null,
+        });
+
+        const cached = await cacheLibraryForOffline(merged, (cachedBook, ready, total) => {
+          setBooks((current) => current.map((book) => (
+            book.id === cachedBook.id
+              ? {
+                  ...book,
+                  txtUri: cachedBook.txtUri,
+                  coverUri: cachedBook.coverUri,
+                  audioUri: cachedBook.audioUri,
+                  cuesUri: cachedBook.cuesUri,
+                }
+              : book
+          )));
+          setOfflineDownload({ ready, total, isDownloading: true, error: null });
+        });
+
+        const warnings = [...pushed.warnings, ...cached.warnings];
+        setSyncWarning(warnings.length ? warnings.join(' · ') : null);
+        setOfflineDownload({
+          ready: cached.ready,
+          total: cached.total,
+          isDownloading: false,
+          error: cached.warnings.length ? 'Algunos archivos quedaron pendientes.' : null,
+        });
+      } catch (e: any) {
         console.error('Error sincronizando con Supabase (pull)', e);
         setSyncError(e?.message ?? 'No se pudo sincronizar');
-      })
-      .finally(() => {
+        setOfflineDownload((current) => ({ ...current, isDownloading: false }));
+      } finally {
         pullInFlight.current = null;
         setIsSyncing(false);
-      });
+      }
+    })();
     pullInFlight.current = task;
     return task;
   }, [userId, isLoading, books, dailyStats]);
@@ -229,6 +312,17 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => subscription.remove();
   }, [syncNow]);
 
+  // Una PWA puede recuperar Internet sin pasar a segundo plano. En ese caso el
+  // evento online dispara el mismo merge y sube lo leído durante el viaje.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const handleOnline = () => {
+      if (Date.now() - lastPullStartedAt.current > 3_000) syncNow();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [syncNow]);
+
   // Al cerrar sesión, permite que el próximo login vuelva a traer datos.
   useEffect(() => {
     if (!userId) pulledForUser.current = null;
@@ -237,7 +331,7 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Sube los cambios locales a Supabase, con un pequeño debounce para no
   // disparar una llamada por cada tecla o cada segundo de audio.
   useEffect(() => {
-    if (isLoading || !userId || pulledForUser.current !== userId) return;
+    if (isLoading || !userId || pulledForUser.current !== userId || offlineDownload.isDownloading) return;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
       setIsSyncing(true);
@@ -262,7 +356,7 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (pushTimer.current) clearTimeout(pushTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [books, dailyStats, userId]);
+  }, [books, dailyStats, userId, offlineDownload.isDownloading]);
 
   const addBook = async (newBook: NewBook, id?: string) => {
     const bookId = id ?? genId();
@@ -390,6 +484,7 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (userId) await Promise.all(books.map((book) => deleteBookRemote(userId, book)));
       await AsyncStorage.removeItem('@books');
       setBooks([]);
+      setOfflineDownload({ ready: 0, total: 0, isDownloading: false, error: null });
       await Promise.all(ids.map((id) => deleteBookFiles(id)));
     } catch (error) {
       console.error(error);
@@ -416,6 +511,7 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await AsyncStorage.multiRemove(['@books', '@dailyStats']);
       setBooks([]);
       setDailyStats({});
+      setOfflineDownload({ ready: 0, total: 0, isDownloading: false, error: null });
       await Promise.all(ids.map((id) => deleteBookFiles(id)));
       // Barre también lo que hubiera quedado suelto de libros ya borrados.
       await clearWebFiles();
@@ -442,6 +538,7 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lastSyncedAt,
         syncError,
         syncWarning,
+        offlineDownload,
         syncNow,
       }}
     >

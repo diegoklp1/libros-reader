@@ -1,6 +1,6 @@
 import { bookContentKey } from './bookFingerprint';
 import type { Book, BookNote, DailyStat } from './BookContext';
-import { uploadBodyForUri } from './storage';
+import { cacheCloudFile, isDurableLocalUri, uploadBodyForUri } from './storage';
 import { supabase } from './supabaseClient';
 
 const BUCKET = 'book-files';
@@ -164,7 +164,63 @@ function preferLocalAsset(
   // Una fila creada por la versión anterior solo tiene metadatos/progreso.
   // Nunca debe borrar el archivo local por traer una ruta cloud vacía.
   if (!remotePath) return localUri ?? null;
-  return localUri && localPath === remotePath ? localUri : remoteUrl;
+  return localUri && localPath === remotePath && isDurableLocalUri(localUri) ? localUri : remoteUrl;
+}
+
+export function isBookReadyOffline(book: Book): boolean {
+  const ready = (uri: string | null | undefined, cloudPath: string | null | undefined) =>
+    !cloudPath || isDurableLocalUri(uri);
+  return ready(book.txtUri, book.cloudTextPath)
+    && ready(book.coverUri, book.cloudCoverPath)
+    && ready(book.audioUri, book.cloudAudioPath)
+    && ready(book.cuesUri, book.cloudCuesPath);
+}
+
+async function cacheBookForOffline(book: Book): Promise<{ book: Book; warnings: string[] }> {
+  const warnings: string[] = [];
+  const cache = async (
+    kind: 'text' | 'cover' | 'audio' | 'cues',
+    uri: string | null | undefined,
+    cloudPath: string | null | undefined
+  ) => {
+    if (!cloudPath) return uri ?? null;
+    try {
+      return await cacheCloudFile(uri, cloudPath, kind, book.id, uri, cloudPath) ?? uri ?? null;
+    } catch (error: any) {
+      warnings.push(`${book.title}: no se pudo guardar ${kind} para usar sin conexión (${error?.message ?? 'error de descarga'}).`);
+      return uri ?? null;
+    }
+  };
+
+  const [txtUri, coverUri, audioUri, cuesUri] = await Promise.all([
+    cache('text', book.txtUri, book.cloudTextPath),
+    cache('cover', book.coverUri, book.cloudCoverPath),
+    cache('audio', book.audioUri, book.cloudAudioPath),
+    cache('cues', book.cuesUri, book.cloudCuesPath),
+  ]);
+  return { book: { ...book, txtUri, coverUri, audioUri, cuesUri }, warnings };
+}
+
+/** Descarga en serie la biblioteca cloud y publica cada libro apenas queda listo. */
+export async function cacheLibraryForOffline(
+  books: Book[],
+  onProgress?: (book: Book, ready: number, total: number) => void
+): Promise<{ books: Book[]; ready: number; total: number; warnings: string[] }> {
+  const result = [...books];
+  const warnings: string[] = [];
+  let ready = result.filter(isBookReadyOffline).length;
+
+  for (let index = 0; index < result.length; index++) {
+    if (!isBookReadyOffline(result[index])) {
+      const cached = await cacheBookForOffline(result[index]);
+      result[index] = cached.book;
+      warnings.push(...cached.warnings);
+      ready = result.filter(isBookReadyOffline).length;
+    }
+    onProgress?.(result[index], ready, result.length);
+  }
+
+  return { books: result, ready, total: result.length, warnings };
 }
 
 // ------------------------------------------------------------------- pushAll

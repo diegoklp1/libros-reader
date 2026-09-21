@@ -63,7 +63,9 @@ const keyOf = (uri: string) => uri.slice(SCHEME.length);
  * URI estable con la que hay que anotarla en el libro.
  */
 export async function saveWebFile(sourceUri: string, key: string): Promise<string> {
-  const blob = await fetch(sourceUri).then((r) => r.blob());
+  const response = await fetch(sourceUri);
+  if (!response.ok) throw new Error(`No se pudo descargar el archivo (${response.status})`);
+  const blob = await response.blob();
   await run('readwrite', (store) => store.put(blob, key));
 
   const previous = objectUrls.get(key);
@@ -71,6 +73,27 @@ export async function saveWebFile(sourceUri: string, key: string): Promise<strin
   objectUrls.set(key, URL.createObjectURL(blob));
 
   return `${SCHEME}${key}`;
+}
+
+/** Comprueba que una URI de IndexedDB todavía tenga bytes guardados. */
+export async function hasWebFile(uri: string): Promise<boolean> {
+  if (!isWeb || !isWebFileUri(uri)) return false;
+  try {
+    const blob = await run<Blob | undefined>('readonly', (store) => store.get(keyOf(uri)));
+    return !!blob?.size;
+  } catch {
+    return false;
+  }
+}
+
+/** Pide almacenamiento persistente para proteger la biblioteca offline. */
+export async function requestPersistentWebStorage(): Promise<boolean> {
+  if (!isWeb || typeof navigator === 'undefined' || !navigator.storage?.persist) return false;
+  try {
+    return await navigator.storage.persist();
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -14,10 +14,22 @@ import { selectFeedback } from '../src/haptics';
 import { ReadingMode, ThemeMode, usePreferences, useTheme } from '../src/PreferencesContext';
 import { READING_FONT_ORDER, READING_FONTS, ReadingFontKey, shadow, Theme } from '../src/theme';
 
-const APP_VERSION = Constants.expoConfig?.version ?? '3.0.0';
+const APP_VERSION = Constants.expoConfig?.version ?? '3.1.0';
 
 export default function SettingsScreen() {
-  const { books, dailyStats, clearBooks, clearStats, resetAllData, isSyncing, lastSyncedAt, syncError, syncWarning, syncNow } = useBooks();
+  const {
+    books,
+    dailyStats,
+    clearBooks,
+    clearStats,
+    resetAllData,
+    isSyncing,
+    lastSyncedAt,
+    syncError,
+    syncWarning,
+    offlineDownload,
+    syncNow,
+  } = useBooks();
   const { session, signOut } = useAuth();
   const { prefs, setPreference } = usePreferences();
   const theme = useTheme();
@@ -167,6 +179,27 @@ export default function SettingsScreen() {
                       : lastSyncedAt
                         ? `Sincronizado a las ${new Date(lastSyncedAt).toLocaleTimeString()}`
                         : 'Biblioteca, archivos y progreso sincronizados entre tus dispositivos.'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Ionicons
+                name={offlineDownload.ready === offlineDownload.total && offlineDownload.total > 0 ? 'download-outline' : 'cloud-download-outline'}
+                size={21}
+                color={theme.colors.textSecondary}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Disponibilidad sin conexión</Text>
+                <Text style={styles.settingSub}>
+                  {offlineDownload.isDownloading
+                    ? `Descargando biblioteca… ${offlineDownload.ready} de ${offlineDownload.total} libros listos.`
+                    : offlineDownload.error
+                      ? `${offlineDownload.ready} de ${offlineDownload.total} libros listos. ${offlineDownload.error}`
+                      : offlineDownload.total > 0
+                        ? `${offlineDownload.ready} de ${offlineDownload.total} libros guardados en este dispositivo.`
+                        : 'Se descargará automáticamente al sincronizar.'}
                 </Text>
               </View>
             </View>

@@ -14,8 +14,8 @@ Una aplicación móvil multiplataforma desarrollada con React Native y Expo, dis
 * **Modo Oscuro Real:** Tema Sistema / Claro / Oscuro aplicado en toda la app y persistido.
 * **Resaltados y Notas:** Mantené presionado un párrafo y elegí **“Recordar esta parte”**: queda marcado con una barra sutil al margen y se genera una nota con la cita. Podés **extender** la marca a los párrafos siguientes para cubrir pasajes largos, agregarle un comentario, y desde “Mis Notas” volver al fragmento exacto (no solo a la página). Conviven con las notas escritas a mano de siempre. La unidad de marcado es el bloque de ~280 caracteres (limitación de React Native: no expone la selección de texto dentro de un `<Text>`).
 * **Biblioteca en la nube:** La sesión, fichas, textos, portadas, notas, progreso y estadísticas se sincronizan con Supabase. Un libro agregado desde la PC aparece al abrir la app en el celular.
-* **Audio sin ocupar el celular:** Los audiolibros viven en un bucket privado de Supabase Storage y se reproducen por streaming con enlaces temporales. El dispositivo donde se importaron conserva además su copia local para poder seguir usándolos offline.
-* **Offline-First híbrido:** La copia local se usa cuando existe; si el libro llegó desde otro dispositivo, la app usa la versión privada de la nube. Al volver a primer plano actualiza la biblioteca y el progreso.
+* **Biblioteca automática sin conexión:** Los audiolibros viven en un bucket privado de Supabase Storage y, al iniciar sesión, texto, portada, subtítulos y audio se descargan al almacenamiento permanente de cada dispositivo.
+* **Offline-First real:** La PWA y los libros descargados abren sin Internet. El progreso se guarda localmente durante el viaje y se combina con Supabase al recuperar conexión o volver a primer plano.
 
 ## 📕 Preparar libros (texto + audiolibro + sincronización)
 
@@ -68,6 +68,8 @@ El bucket `book-files` es privado y las políticas solo permiten acceder a la ca
 ## 🌐 Web sin levantar nada en la PC
 
 La versión compilada se publica en [GitHub Pages](https://diegoklp1.github.io/libros-reader-web/) desde el repositorio público `libros-reader-web`; este repositorio principal y los archivos de trabajo siguen privados. La app incluye un manifiesto instalable para agregarla al escritorio o a la pantalla de inicio.
+
+En Android, abrir esa URL con Chrome y elegir **Instalar aplicación**. Después del primer login conviene esperar a que Configuración muestre todos los libros como guardados: desde ese momento la aplicación, los textos y los audios abren sin conexión. El avance realizado offline se sube automáticamente cuando vuelve Internet.
 
 ## 🚀 Instalación y Uso Local
 

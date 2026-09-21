@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
-import { deleteWebFiles, isWebFileUri, resolveUri, saveWebFile } from './webFiles';
+import { deleteWebFiles, hasWebFile, isWebFileUri, resolveUri, saveWebFile } from './webFiles';
 
 // Carpeta permanente donde vive el contenido importado de cada libro.
 // Los pickers devuelven URIs de caché temporal que el SO puede borrar;
@@ -21,6 +21,15 @@ function extensionFromUri(uri: string, fallback: string) {
   return match ? match[1].toLowerCase() : fallback;
 }
 
+export type BookAssetKind = 'cover' | 'text' | 'audio' | 'cues';
+
+/** Indica si una URI apunta a bytes duraderos del dispositivo y no a Internet. */
+export function isDurableLocalUri(uri: string | null | undefined): boolean {
+  if (!uri) return false;
+  if (Platform.OS === 'web') return isWebFileUri(uri) && !!resolveUri(uri);
+  return !/^(https?:|blob:|data:)/i.test(uri);
+}
+
 /**
  * Copia un archivo elegido por el usuario a almacenamiento permanente y
  * devuelve la nueva URI. Si el archivo ya vive donde tiene que vivir, no se
@@ -33,7 +42,7 @@ function extensionFromUri(uri: string, fallback: string) {
  */
 export async function persistFile(
   sourceUri: string | null,
-  kind: 'cover' | 'text' | 'audio' | 'cues',
+  kind: BookAssetKind,
   bookId: string
 ): Promise<string | null> {
   if (!sourceUri) return null;
@@ -57,6 +66,53 @@ export async function persistFile(
   if (existing.exists) await FileSystem.deleteAsync(dest, { idempotent: true });
   await FileSystem.copyAsync({ from: sourceUri, to: dest });
   return dest;
+}
+
+/**
+ * Descarga un archivo privado de Supabase al almacenamiento permanente.
+ * Si la ruta cloud no cambió y la copia local sigue existiendo, no consume red.
+ */
+export async function cacheCloudFile(
+  sourceUrl: string | null | undefined,
+  cloudPath: string | null | undefined,
+  kind: BookAssetKind,
+  bookId: string,
+  currentUri?: string | null,
+  currentCloudPath?: string | null
+): Promise<string | null> {
+  if (!sourceUrl || !cloudPath) return null;
+
+  if (currentUri && currentCloudPath === cloudPath) {
+    if (Platform.OS === 'web' && isWebFileUri(currentUri) && await hasWebFile(currentUri)) return currentUri;
+    if (Platform.OS !== 'web' && isDurableLocalUri(currentUri)) {
+      const info = await FileSystem.getInfoAsync(currentUri).catch(() => null);
+      if (info?.exists) return currentUri;
+    }
+  }
+
+  if (Platform.OS === 'web') return saveWebFile(sourceUrl, `${bookId}-${kind}`);
+  if (!LIBRARY_DIR) return sourceUrl;
+
+  await ensureLibraryDir();
+  const fallbackExt =
+    kind === 'cover' ? 'jpg' : kind === 'audio' ? 'mp3' : kind === 'cues' ? 'srt' : 'txt';
+  const ext = extensionFromUri(cloudPath, fallbackExt);
+  const destination = `${LIBRARY_DIR}${bookId}-${kind}.${ext}`;
+  const temporary = `${destination}.download`;
+  await FileSystem.deleteAsync(temporary, { idempotent: true });
+
+  try {
+    const result = await FileSystem.downloadAsync(sourceUrl, temporary);
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`No se pudo descargar el archivo (${result.status})`);
+    }
+    await FileSystem.deleteAsync(destination, { idempotent: true });
+    await FileSystem.moveAsync({ from: temporary, to: destination });
+    return destination;
+  } catch (error) {
+    await FileSystem.deleteAsync(temporary, { idempotent: true }).catch(() => {});
+    throw error;
+  }
 }
 
 /** Lee el contenido de un .txt guardado, sea cual sea la plataforma. */
